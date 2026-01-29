@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@proofchain/partner-sdk": "^1.0.5",
-    "@proofchain/sdk": "^2.1.1",
+    "@proofchain/sdk": "^2.3.1",
     "next": "16.1.1",
     "react": "19.2.3",
     "react-dom": "19.2.3"
