@@ -1,0 +1,68 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: registry.digitalocean.com/proofchain
+  IMAGE_NAME: demo-app
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Type check
+        run: npx tsc --noEmit
+      
+      - name: Build
+        run: npm run build
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      
+      - name: Log in to DO Container Registry
+        run: doctl registry login --expiry-seconds 1200
+      
+      - name: Build and push image
+        run: |
+          docker build -t $REGISTRY/$IMAGE_NAME:${{ github.sha }} -t $REGISTRY/$IMAGE_NAME:latest .
+          docker push $REGISTRY/$IMAGE_NAME:${{ github.sha }}
+          docker push $REGISTRY/$IMAGE_NAME:latest
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy to Kubernetes via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 51.158.203.231
+          username: root
+          key: ${{ secrets.K8S_SSH_PRIVATE_KEY }}
+          script: |
+            kubectl set image deployment/demo-app demo-app=registry.digitalocean.com/proofchain/demo-app:${{ github.sha }} -n proofchain
+            kubectl rollout status deployment/demo-app -n proofchain --timeout=300s
