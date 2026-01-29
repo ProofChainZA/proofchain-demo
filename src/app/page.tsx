@@ -101,7 +101,7 @@ export default function Home() {
   const [questUserId, setQuestUserId] = useState('');
   const [availableQuests, setAvailableQuests] = useState<Array<{ id: string; name: string; description: string; status: string; difficulty: string; reward_points: number; steps: Array<{ name: string; step_type: string; event_type?: string; target_count?: number }> }>>([]);
   const [selectedQuest, setSelectedQuest] = useState<{ id: string; name: string; steps: Array<{ name: string; step_type: string; event_type?: string; target_count?: number }> } | null>(null);
-  const [questProgress, setQuestProgress] = useState<{ status: string; steps_completed: number; total_steps: number; completion_percentage: number; step_progress: Array<{ step_index: number; completed: boolean; current_count: number; target_count: number }> } | null>(null);
+  const [questProgress, setQuestProgress] = useState<{ status: string; steps_completed: number; total_steps: number; completion_percentage: number; step_progress: Record<string, { completed: boolean; current_count: number; target_count: number }> } | null>(null);
   const [questLoading, setQuestLoading] = useState(false);
   const [simulatingEvents, setSimulatingEvents] = useState(false);
 
@@ -2707,7 +2707,7 @@ export default function Home() {
                           <div className="space-y-3">
                             <h5 className="font-medium text-sm text-gray-700">Quest Steps:</h5>
                             {selectedQuest.steps.map((step, i) => {
-                              const stepProg = questProgress?.step_progress?.find(sp => sp.step_index === i);
+                              const stepProg = questProgress?.step_progress?.[String(i)];
                               const isCompleted = stepProg?.completed || false;
                               
                               return (
