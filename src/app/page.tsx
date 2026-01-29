@@ -1363,7 +1363,7 @@ export default function Home() {
     setQuestLoading(true);
     addLog('request', `tenantSDK.quests.listAvailable('${questUserId}')`);
     try {
-      const quests = await tenantSDK.quests.listAvailable(questUserId);
+      const quests = await tenantSDK.quests.listAvailable(questUserId) as Array<{ id: string; name: string; description: string; status: string; difficulty: string; reward_points: number; steps: Array<{ name: string; step_type: string; event_type?: string; target_count?: number }> }>;
       addLog('success', `✅ Found ${quests.length} available quests`, quests);
       setAvailableQuests(quests);
       setResult(quests);
@@ -1384,7 +1384,7 @@ export default function Home() {
     setQuestLoading(true);
     addLog('request', `tenantSDK.quests.list({ status: 'active' })`);
     try {
-      const quests = await tenantSDK.quests.list({ status: 'active' });
+      const quests = await tenantSDK.quests.list({ status: 'active' }) as Array<{ id: string; name: string; description: string; status: string; difficulty: string; reward_points: number; steps: Array<{ name: string; step_type: string; event_type?: string; target_count?: number }> }>;
       addLog('success', `✅ Found ${quests.length} active quests`, quests);
       setAvailableQuests(quests);
       setResult(quests);
@@ -2803,7 +2803,7 @@ export default function Home() {
                   </button>
                 </div>
                 <pre className="p-4 bg-gray-900 text-gray-100 text-sm overflow-auto max-h-96">
-                  {JSON.stringify(result, null, 2)}
+                  {JSON.stringify(result as object, null, 2)}
                 </pre>
               </div>
             )}
