@@ -14,7 +14,7 @@ declare global {
   }
 }
 
-type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'tenant' | 'wallets';
+type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'tenant' | 'wallets' | 'quests';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SDKInstance = any;
@@ -96,6 +96,14 @@ export default function Home() {
   const [swapAmount, setSwapAmount] = useState('0.01');
   const [newWalletUserId, setNewWalletUserId] = useState('');
   const [walletLoading, setWalletLoading] = useState(false);
+
+  // Quest demo state
+  const [questUserId, setQuestUserId] = useState('');
+  const [availableQuests, setAvailableQuests] = useState<Array<{ id: string; name: string; description: string; status: string; difficulty: string; reward_points: number; steps: Array<{ name: string; step_type: string; event_type?: string; target_count?: number }> }>>([]);
+  const [selectedQuest, setSelectedQuest] = useState<{ id: string; name: string; steps: Array<{ name: string; step_type: string; event_type?: string; target_count?: number }> } | null>(null);
+  const [questProgress, setQuestProgress] = useState<{ status: string; steps_completed: number; total_steps: number; completion_percentage: number; step_progress: Array<{ step_index: number; completed: boolean; current_count: number; target_count: number }> } | null>(null);
+  const [questLoading, setQuestLoading] = useState(false);
+  const [simulatingEvents, setSimulatingEvents] = useState(false);
 
   // Consent widget modal state
   const [showConsentModal, setShowConsentModal] = useState(false);
@@ -1339,6 +1347,217 @@ export default function Home() {
     }
   };
 
+  // =========================================================================
+  // Quests Demo (using Tenant SDK)
+  // =========================================================================
+  const listAvailableQuests = async () => {
+    if (!tenantSDK) {
+      addLog('error', '❌ Tenant SDK not initialized');
+      return;
+    }
+    if (!questUserId) {
+      addLog('error', '❌ User ID required');
+      return;
+    }
+
+    setQuestLoading(true);
+    addLog('request', `tenantSDK.quests.listAvailable('${questUserId}')`);
+    try {
+      const quests = await tenantSDK.quests.listAvailable(questUserId);
+      addLog('success', `✅ Found ${quests.length} available quests`, quests);
+      setAvailableQuests(quests);
+      setResult(quests);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setQuestLoading(false);
+    }
+  };
+
+  const listAllQuests = async () => {
+    if (!tenantSDK) {
+      addLog('error', '❌ Tenant SDK not initialized');
+      return;
+    }
+
+    setQuestLoading(true);
+    addLog('request', `tenantSDK.quests.list({ status: 'active' })`);
+    try {
+      const quests = await tenantSDK.quests.list({ status: 'active' });
+      addLog('success', `✅ Found ${quests.length} active quests`, quests);
+      setAvailableQuests(quests);
+      setResult(quests);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setQuestLoading(false);
+    }
+  };
+
+  const startQuest = async () => {
+    if (!tenantSDK || !selectedQuest || !questUserId) {
+      addLog('error', '❌ SDK, Quest, and User ID required');
+      return;
+    }
+
+    setQuestLoading(true);
+    addLog('request', `tenantSDK.quests.startQuest('${selectedQuest.id}', '${questUserId}')`);
+    try {
+      const progress = await tenantSDK.quests.startQuest(selectedQuest.id, questUserId);
+      addLog('success', '✅ Quest started!', progress);
+      setQuestProgress(progress);
+      setResult(progress);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setQuestLoading(false);
+    }
+  };
+
+  const getQuestProgress = async () => {
+    if (!tenantSDK || !selectedQuest || !questUserId) {
+      addLog('error', '❌ SDK, Quest, and User ID required');
+      return;
+    }
+
+    setQuestLoading(true);
+    addLog('request', `tenantSDK.quests.getUserProgress('${selectedQuest.id}', '${questUserId}')`);
+    try {
+      const progress = await tenantSDK.quests.getUserProgress(selectedQuest.id, questUserId);
+      addLog('success', '✅ Progress fetched', progress);
+      setQuestProgress(progress);
+      setResult(progress);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setQuestLoading(false);
+    }
+  };
+
+  const completeQuestStep = async (stepIndex: number) => {
+    if (!tenantSDK || !selectedQuest || !questUserId) {
+      addLog('error', '❌ SDK, Quest, and User ID required');
+      return;
+    }
+
+    setQuestLoading(true);
+    addLog('request', `tenantSDK.quests.completeStep('${selectedQuest.id}', '${questUserId}', ${stepIndex})`);
+    try {
+      const result = await tenantSDK.quests.completeStep(selectedQuest.id, questUserId, stepIndex);
+      addLog('success', `✅ Step ${stepIndex} completed!`, result);
+      setResult(result);
+      // Refresh progress
+      await getQuestProgress();
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setQuestLoading(false);
+    }
+  };
+
+  const simulateQuestEvents = async (stepIndex: number) => {
+    if (!ingestionClient || !selectedQuest || !questUserId) {
+      addLog('error', '❌ Ingestion Client, Quest, and User ID required');
+      return;
+    }
+
+    const step = selectedQuest.steps[stepIndex];
+    if (!step || !step.event_type) {
+      addLog('error', '❌ Step has no event_type - use manual completion instead');
+      return;
+    }
+
+    setSimulatingEvents(true);
+    const targetCount = step.target_count || 1;
+    addLog('request', `Simulating ${targetCount} "${step.event_type}" events for user ${questUserId}...`);
+
+    try {
+      const events = [];
+      for (let i = 0; i < targetCount; i++) {
+        events.push({
+          userId: questUserId,
+          eventType: step.event_type,
+          eventSource: 'quest_demo',
+          data: {
+            quest_id: selectedQuest.id,
+            step_index: stepIndex,
+            simulated: true,
+            iteration: i + 1,
+          },
+        });
+      }
+
+      const response = await ingestionClient.ingestBatch({ events });
+      addLog('success', `✅ Ingested ${response.queued || targetCount} events`, response);
+      setResult(response);
+
+      // Wait a moment for processing, then refresh progress
+      addLog('info', '⏳ Waiting for event processing...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await getQuestProgress();
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setSimulatingEvents(false);
+    }
+  };
+
+  const simulateAllQuestSteps = async () => {
+    if (!ingestionClient || !selectedQuest || !questUserId) {
+      addLog('error', '❌ Ingestion Client, Quest, and User ID required');
+      return;
+    }
+
+    setSimulatingEvents(true);
+    addLog('info', `🚀 Simulating all steps for quest "${selectedQuest.name}"...`);
+
+    try {
+      for (let i = 0; i < selectedQuest.steps.length; i++) {
+        const step = selectedQuest.steps[i];
+        if (step.event_type) {
+          const targetCount = step.target_count || 1;
+          addLog('request', `Step ${i + 1}: Simulating ${targetCount} "${step.event_type}" events...`);
+
+          const events = [];
+          for (let j = 0; j < targetCount; j++) {
+            events.push({
+              userId: questUserId,
+              eventType: step.event_type,
+              eventSource: 'quest_demo',
+              data: {
+                quest_id: selectedQuest.id,
+                step_index: i,
+                simulated: true,
+                iteration: j + 1,
+              },
+            });
+          }
+
+          const response = await ingestionClient.ingestBatch({ events });
+          addLog('success', `✅ Step ${i + 1}: Ingested ${response.queued || targetCount} events`);
+        } else {
+          addLog('info', `Step ${i + 1}: "${step.name}" requires manual completion (no event_type)`);
+        }
+      }
+
+      addLog('info', '⏳ Waiting for event processing...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      await getQuestProgress();
+      addLog('success', '🎉 All quest steps simulated!');
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setSimulatingEvents(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
@@ -1420,6 +1639,12 @@ export default function Home() {
                   className={`px-6 py-3 text-sm font-medium ${activeTab === 'wallets' ? 'border-b-2 border-amber-500 text-amber-600 bg-amber-50' : 'text-gray-600 hover:text-gray-900'}`}
                 >
                   💰 Wallets
+                </button>
+                <button
+                  onClick={() => setActiveTab('quests')}
+                  className={`px-6 py-3 text-sm font-medium ${activeTab === 'quests' ? 'border-b-2 border-pink-500 text-pink-600 bg-pink-50' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  🎯 Quests
                 </button>
               </div>
 
@@ -2342,6 +2567,223 @@ export default function Home() {
                                 Swap
                               </button>
                             </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Quests Tab */}
+                {activeTab === 'quests' && (
+                  <div className="space-y-6">
+                    <div className="bg-pink-50 border border-pink-200 rounded-lg p-4">
+                      <h3 className="font-semibold text-pink-900">Quest Demo</h3>
+                      <p className="text-sm text-pink-700 mt-1">
+                        Test quest functionality: list quests, start them, and simulate events to complete objectives.
+                        Uses <code className="bg-white px-1 rounded">tenantSDK.quests</code> and <code className="bg-white px-1 rounded">ingestionClient</code>
+                      </p>
+                    </div>
+
+                    {/* User Setup */}
+                    <div className="border rounded-lg p-4">
+                      <h4 className="font-semibold mb-3">1. Set Demo User</h4>
+                      <div className="flex gap-4 items-end">
+                        <div className="flex-1">
+                          <label className="block text-xs font-medium text-gray-500 mb-1">User ID</label>
+                          <input
+                            type="text"
+                            value={questUserId}
+                            onChange={(e) => setQuestUserId(e.target.value)}
+                            placeholder="e.g., demo_user_123 or select from generated users"
+                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                          />
+                        </div>
+                        {generatedUsers.length > 0 && (
+                          <select
+                            value={questUserId}
+                            onChange={(e) => setQuestUserId(e.target.value)}
+                            className="px-3 py-2 border rounded-lg text-sm"
+                          >
+                            <option value="">Use generated user...</option>
+                            {generatedUsers.map(u => (
+                              <option key={u.userId} value={u.userId}>{u.userId}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* List Quests */}
+                    <div className="border rounded-lg p-4">
+                      <h4 className="font-semibold mb-3">2. Load Available Quests</h4>
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          onClick={listAllQuests}
+                          disabled={!tenantSDK || questLoading}
+                          className="px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50 text-sm font-medium"
+                        >
+                          {questLoading ? 'Loading...' : 'List All Active Quests'}
+                        </button>
+                        <button
+                          onClick={listAvailableQuests}
+                          disabled={!tenantSDK || !questUserId || questLoading}
+                          className="px-4 py-2 bg-pink-100 text-pink-700 rounded-lg hover:bg-pink-200 disabled:opacity-50 text-sm font-medium"
+                        >
+                          List Available for User
+                        </button>
+                      </div>
+
+                      {availableQuests.length > 0 && (
+                        <div className="mt-4">
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Select a Quest</label>
+                          <select
+                            value={selectedQuest?.id || ''}
+                            onChange={(e) => {
+                              const quest = availableQuests.find(q => q.id === e.target.value);
+                              setSelectedQuest(quest || null);
+                              setQuestProgress(null);
+                            }}
+                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                          >
+                            <option value="">Choose a quest...</option>
+                            {availableQuests.map(q => (
+                              <option key={q.id} value={q.id}>
+                                {q.name} ({q.difficulty}) - {q.reward_points} pts
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Selected Quest Details */}
+                    {selectedQuest && (
+                      <>
+                        <div className="border rounded-lg p-4 bg-gradient-to-r from-pink-50 to-purple-50">
+                          <div className="flex items-start justify-between mb-4">
+                            <div>
+                              <h4 className="font-semibold text-lg">{selectedQuest.name}</h4>
+                              <p className="text-sm text-gray-600">{selectedQuest.steps.length} steps</p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={startQuest}
+                                disabled={!questUserId || questLoading}
+                                className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm"
+                              >
+                                Start Quest
+                              </button>
+                              <button
+                                onClick={getQuestProgress}
+                                disabled={!questUserId || questLoading}
+                                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
+                              >
+                                Refresh Progress
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Progress Bar */}
+                          {questProgress && (
+                            <div className="mb-4">
+                              <div className="flex justify-between text-sm mb-1">
+                                <span className="font-medium">Progress: {questProgress.status}</span>
+                                <span>{questProgress.completion_percentage}%</span>
+                              </div>
+                              <div className="w-full bg-gray-200 rounded-full h-3">
+                                <div
+                                  className="bg-gradient-to-r from-pink-500 to-purple-500 h-3 rounded-full transition-all duration-500"
+                                  style={{ width: `${questProgress.completion_percentage}%` }}
+                                />
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1">
+                                {questProgress.steps_completed} / {questProgress.total_steps} steps completed
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Steps */}
+                          <div className="space-y-3">
+                            <h5 className="font-medium text-sm text-gray-700">Quest Steps:</h5>
+                            {selectedQuest.steps.map((step, i) => {
+                              const stepProg = questProgress?.step_progress?.find(sp => sp.step_index === i);
+                              const isCompleted = stepProg?.completed || false;
+                              
+                              return (
+                                <div
+                                  key={i}
+                                  className={`p-3 rounded-lg border ${isCompleted ? 'bg-green-50 border-green-300' : 'bg-white border-gray-200'}`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isCompleted ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-600'}`}>
+                                        {isCompleted ? '✓' : i + 1}
+                                      </span>
+                                      <div>
+                                        <p className="font-medium text-sm">{step.name}</p>
+                                        <p className="text-xs text-gray-500">
+                                          Type: {step.step_type}
+                                          {step.event_type && ` | Event: ${step.event_type}`}
+                                          {step.target_count && step.target_count > 1 && ` | Target: ${step.target_count}x`}
+                                        </p>
+                                        {stepProg && !isCompleted && (
+                                          <p className="text-xs text-blue-600">
+                                            Progress: {stepProg.current_count} / {stepProg.target_count}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                    {!isCompleted && (
+                                      <div className="flex gap-1">
+                                        {step.event_type && (
+                                          <button
+                                            onClick={() => simulateQuestEvents(i)}
+                                            disabled={simulatingEvents || questLoading}
+                                            className="px-2 py-1 bg-orange-500 text-white rounded text-xs hover:bg-orange-600 disabled:opacity-50"
+                                            title="Simulate events to complete this step"
+                                          >
+                                            {simulatingEvents ? '...' : '🎲 Simulate'}
+                                          </button>
+                                        )}
+                                        <button
+                                          onClick={() => completeQuestStep(i)}
+                                          disabled={questLoading}
+                                          className="px-2 py-1 bg-purple-500 text-white rounded text-xs hover:bg-purple-600 disabled:opacity-50"
+                                          title="Manually complete this step"
+                                        >
+                                          ✓ Complete
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Simulate All Button */}
+                          <div className="mt-4 pt-4 border-t">
+                            <button
+                              onClick={simulateAllQuestSteps}
+                              disabled={simulatingEvents || questLoading || !questUserId}
+                              className="w-full px-4 py-3 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-lg hover:from-orange-600 hover:to-pink-600 disabled:opacity-50 font-medium flex items-center justify-center gap-2"
+                            >
+                              {simulatingEvents ? (
+                                <>
+                                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                  Simulating Events...
+                                </>
+                              ) : (
+                                <>🚀 Simulate All Steps (Auto-Complete Quest)</>
+                              )}
+                            </button>
+                            <p className="text-xs text-gray-500 text-center mt-2">
+                              This will generate fake events for each step that has an event_type configured
+                            </p>
                           </div>
                         </div>
                       </>
