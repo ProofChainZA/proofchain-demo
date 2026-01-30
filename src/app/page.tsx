@@ -14,7 +14,7 @@ declare global {
   }
 }
 
-type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'tenant' | 'wallets' | 'quests';
+type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'tenant' | 'wallets' | 'quests' | 'pii';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SDKInstance = any;
@@ -1646,6 +1646,12 @@ export default function Home() {
                 >
                   🎯 Quests
                 </button>
+                <button
+                  onClick={() => setActiveTab('pii')}
+                  className={`px-6 py-3 text-sm font-medium ${activeTab === 'pii' ? 'border-b-2 border-red-500 text-red-600 bg-red-50' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  🔒 PII Protection
+                </button>
               </div>
 
               <div className="p-6">
@@ -2807,6 +2813,194 @@ export default function Home() {
                         </div>
                       </>
                     )}
+                  </div>
+                )}
+
+                {/* PII Protection Tab */}
+                {activeTab === 'pii' && (
+                  <div className="space-y-6">
+                    <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 rounded-lg p-4">
+                      <h3 className="font-semibold text-red-900">PII Protection Demo</h3>
+                      <p className="text-sm text-red-700 mt-1">
+                        See how FanPass automatically detects and protects Personally Identifiable Information (PII) in event data.
+                        When enabled, sensitive data like emails, phone numbers, and names are automatically masked before storage.
+                      </p>
+                    </div>
+
+                    {/* How it works */}
+                    <div className="border rounded-lg p-4">
+                      <h4 className="font-semibold mb-3">How PII Protection Works</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-blue-50 p-4 rounded-lg">
+                          <div className="text-2xl mb-2">🔍</div>
+                          <h5 className="font-medium text-blue-900">1. Auto-Detection</h5>
+                          <p className="text-sm text-blue-700 mt-1">
+                            Scans event data for common PII patterns: emails, phone numbers, SSNs, credit cards, names, addresses.
+                          </p>
+                        </div>
+                        <div className="bg-purple-50 p-4 rounded-lg">
+                          <div className="text-2xl mb-2">🔐</div>
+                          <h5 className="font-medium text-purple-900">2. Processing</h5>
+                          <p className="text-sm text-purple-700 mt-1">
+                            PII is processed according to your chosen mode: Hash (for matching), Vault (encrypted), or Redact (removed).
+                          </p>
+                        </div>
+                        <div className="bg-green-50 p-4 rounded-lg">
+                          <div className="text-2xl mb-2">✅</div>
+                          <h5 className="font-medium text-green-900">3. Safe Storage</h5>
+                          <p className="text-sm text-green-700 mt-1">
+                            Processed data is stored safely. Original PII is never exposed in logs, exports, or API responses.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Live Demo */}
+                    <div className="border rounded-lg p-4">
+                      <h4 className="font-semibold mb-3">Live Demo: Before & After</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Before */}
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-2">📥 Raw Event Data (with PII)</label>
+                          <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs overflow-auto max-h-64">
+{`{
+  "event_type": "fan_signup",
+  "user_id": "fan_12345",
+  "data": {
+    "email": "john.doe@example.com",
+    "phone": "+1-555-123-4567",
+    "full_name": "John Doe",
+    "date_of_birth": "1990-05-15",
+    "address": "123 Main St, NYC",
+    "favorite_team": "Arsenal FC",
+    "membership_tier": "Gold"
+  }
+}`}
+                          </pre>
+                        </div>
+                        
+                        {/* After - Hash Mode */}
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-2">📤 Stored Data (PII Protected - Hash Mode)</label>
+                          <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs overflow-auto max-h-64">
+{`{
+  "event_type": "fan_signup",
+  "user_id": "fan_12345",
+  "data": {
+    "email": "[PII:email:a1b2c3d4e5f6]",
+    "phone": "[PII:phone:f7e8d9c0b1a2]",
+    "full_name": "[PII:name:9876543210ab]",
+    "date_of_birth": "[PII:dob:cdef01234567]",
+    "address": "[PII:address:89ab01234567]",
+    "favorite_team": "Arsenal FC",
+    "membership_tier": "Gold"
+  }
+}`}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Processing Modes */}
+                    <div className="border rounded-lg p-4">
+                      <h4 className="font-semibold mb-3">Processing Modes</h4>
+                      <div className="space-y-3">
+                        <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg">
+                          <div className="text-xl">🔢</div>
+                          <div>
+                            <h5 className="font-medium text-blue-900">Hash Mode</h5>
+                            <p className="text-sm text-blue-700">
+                              Replaces PII with a deterministic hash. Same input always produces same hash, 
+                              allowing you to match records without exposing actual data.
+                            </p>
+                            <code className="text-xs bg-white px-2 py-1 rounded mt-1 inline-block">
+                              john@example.com → [PII:email:a1b2c3d4]
+                            </code>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-start gap-3 p-3 bg-purple-50 rounded-lg">
+                          <div className="text-xl">🔐</div>
+                          <div>
+                            <h5 className="font-medium text-purple-900">Vault Mode</h5>
+                            <p className="text-sm text-purple-700">
+                              Encrypts PII and stores it in a secure vault. Original data can be retrieved 
+                              with proper authorization. Best for compliance requirements.
+                            </p>
+                            <code className="text-xs bg-white px-2 py-1 rounded mt-1 inline-block">
+                              john@example.com → {`{"$pii_ref": "uuid-here"}`}
+                            </code>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg">
+                          <div className="text-xl">🚫</div>
+                          <div>
+                            <h5 className="font-medium text-red-900">Redact Mode</h5>
+                            <p className="text-sm text-red-700">
+                              Permanently removes PII and replaces with a redaction marker. 
+                              Data cannot be recovered. Maximum privacy protection.
+                            </p>
+                            <code className="text-xs bg-white px-2 py-1 rounded mt-1 inline-block">
+                              john@example.com → [REDACTED:email]
+                            </code>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Detected PII Types */}
+                    <div className="border rounded-lg p-4">
+                      <h4 className="font-semibold mb-3">Auto-Detected PII Types</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                          <span>📧</span>
+                          <span className="text-sm">Email</span>
+                        </div>
+                        <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                          <span>📱</span>
+                          <span className="text-sm">Phone</span>
+                        </div>
+                        <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                          <span>👤</span>
+                          <span className="text-sm">Name</span>
+                        </div>
+                        <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                          <span>🏠</span>
+                          <span className="text-sm">Address</span>
+                        </div>
+                        <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                          <span>🎂</span>
+                          <span className="text-sm">Date of Birth</span>
+                        </div>
+                        <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                          <span>🔢</span>
+                          <span className="text-sm">SSN</span>
+                        </div>
+                        <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                          <span>💳</span>
+                          <span className="text-sm">Credit Card</span>
+                        </div>
+                        <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                          <span>🌐</span>
+                          <span className="text-sm">IP Address</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Enable in Portal */}
+                    <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg p-4">
+                      <h4 className="font-semibold text-green-900 mb-2">Enable PII Protection</h4>
+                      <p className="text-sm text-green-700 mb-3">
+                        PII Protection is disabled by default. To enable it for your tenant:
+                      </p>
+                      <ol className="text-sm text-green-700 space-y-1 list-decimal list-inside">
+                        <li>Go to <strong>Settings → Features</strong> in the tenant portal</li>
+                        <li>Toggle on <strong>PII Protection</strong></li>
+                        <li>Choose your processing mode (Hash, Vault, or Redact)</li>
+                        <li>Save changes - protection is applied to all new events immediately</li>
+                      </ol>
+                    </div>
                   </div>
                 )}
               </div>
