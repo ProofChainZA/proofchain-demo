@@ -99,8 +99,8 @@ export default function Home() {
 
   // Quest demo state
   const [questUserId, setQuestUserId] = useState('');
-  const [availableQuests, setAvailableQuests] = useState<Array<{ id: string; name: string; description: string; status: string; difficulty: string; reward_points: number; steps: Array<{ name: string; step_type: string; event_type?: string; target_count?: number }> }>>([]);
-  const [selectedQuest, setSelectedQuest] = useState<{ id: string; name: string; steps: Array<{ name: string; step_type: string; event_type?: string; target_count?: number }> } | null>(null);
+  const [availableQuests, setAvailableQuests] = useState<Array<{ id: string; name: string; description: string; status: string; difficulty: string; reward_points: number; quest_type?: 'epic' | 'quick_hit' | 'challenge'; steps: Array<{ name: string; step_type: string; event_type?: string; target_count?: number }> }>>([]);
+  const [selectedQuest, setSelectedQuest] = useState<{ id: string; name: string; quest_type?: 'epic' | 'quick_hit' | 'challenge'; steps: Array<{ name: string; step_type: string; event_type?: string; target_count?: number }> } | null>(null);
   const [questProgress, setQuestProgress] = useState<{ status: string; steps_completed: number; total_steps: number; completion_percentage: number; step_progress: Record<string, { completed: boolean; current_count: number; target_count: number }> } | null>(null);
   const [questLoading, setQuestLoading] = useState(false);
   const [simulatingEvents, setSimulatingEvents] = useState(false);
@@ -141,7 +141,7 @@ export default function Home() {
           debug: true,
         });
         setPartnerSDK(partner);
-        addLog('success', '✅ Partner SDK initialized (@proofchain/partner-sdk)');
+        addLog('success', '✅ FanPass Partner SDK initialized');
       } else {
         addLog('info', '⚠️ Partner SDK skipped (missing integrator key or campaign ID)');
       }
@@ -154,7 +154,7 @@ export default function Home() {
           baseUrl: config.baseUrl,
         });
         setTenantSDK(tenant);
-        addLog('success', '✅ Tenant SDK initialized (@proofchain/sdk)');
+        addLog('success', '✅ FanPass Tenant SDK initialized');
 
         // Initialize Ingestion Client for high-performance event ingestion
         const ingestion = new IngestionClient({
@@ -162,7 +162,7 @@ export default function Home() {
           ingestUrl: 'https://ingest.proofchain.co.za',
         });
         setIngestionClient(ingestion);
-        addLog('success', '✅ Ingestion Client initialized (ingest.proofchain.co.za)');
+        addLog('success', '✅ FanPass Ingestion Client initialized');
       } else {
         addLog('info', '⚠️ Tenant SDK skipped (missing tenant API key)');
       }
@@ -174,7 +174,7 @@ export default function Home() {
   }, [addLog]);
 
   // =========================================================================
-  // Event Generation (using Ingestion Client - ingest.proofchain.co.za)
+  // Event Generation (using FanPass Ingestion Client)
   // =========================================================================
   const generateEvents = async () => {
     if (!ingestionClient) {
@@ -205,7 +205,7 @@ export default function Home() {
         const userId = eventUserId && userCount === 1 
           ? eventUserId 
           : `demo_${['taylor', 'jordan', 'alex', 'sam', 'casey', 'morgan', 'riley', 'drew'][u % 8]}_${Math.floor(Math.random() * 9000) + 1000}`;
-        addLog('request', `Generating ${eventCount} events for user ${userId} via ingest.proofchain.co.za...`);
+        addLog('request', `Generating ${eventCount} events for user ${userId} via FanPass Ingestion...`);
 
         const events = [];
         for (let i = 0; i < eventCount; i++) {
@@ -1570,8 +1570,8 @@ export default function Home() {
               </svg>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ProofChain SDK Demo</h1>
-              <p className="text-sm text-gray-500">@proofchain/sdk + @proofchain/partner-sdk v1.0.0</p>
+              <h1 className="text-xl font-bold text-gray-900">FanPass SDK Demo</h1>
+              <p className="text-sm text-gray-500">Fan Identity & Engagement Platform</p>
             </div>
           </div>
         </div>
@@ -1665,7 +1665,7 @@ export default function Home() {
                         <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm">1</div>
                         <h4 className="font-semibold">Generate Test User Data</h4>
                       </div>
-                      <p className="text-sm text-gray-600 mb-4">Create realistic fan activity data using <code className="bg-gray-100 px-1 rounded">IngestionClient.ingestBatch()</code> via <code className="bg-gray-100 px-1 rounded">ingest.proofchain.co.za</code></p>
+                      <p className="text-sm text-gray-600 mb-4">Create realistic fan activity data using <code className="bg-gray-100 px-1 rounded">IngestionClient.ingestBatch()</code></p>
                       <div className="grid md:grid-cols-4 gap-4">
                         <div>
                           <label className="block text-xs font-medium text-gray-500 mb-1">User ID <span className="text-gray-400">(optional)</span></label>
@@ -2649,7 +2649,7 @@ export default function Home() {
                             <option value="">Choose a quest...</option>
                             {availableQuests.map(q => (
                               <option key={q.id} value={q.id}>
-                                {q.name} ({q.difficulty}) - {q.reward_points} pts
+                                {q.quest_type === 'epic' ? '🏆' : q.quest_type === 'quick_hit' ? '⚡' : q.quest_type === 'challenge' ? '🎯' : '📋'} {q.name} ({q.difficulty}) - {q.reward_points} pts
                               </option>
                             ))}
                           </select>
@@ -2663,16 +2663,35 @@ export default function Home() {
                         <div className="border rounded-lg p-4 bg-gradient-to-r from-pink-50 to-purple-50">
                           <div className="flex items-start justify-between mb-4">
                             <div>
-                              <h4 className="font-semibold text-lg">{selectedQuest.name}</h4>
-                              <p className="text-sm text-gray-600">{selectedQuest.steps.length} steps</p>
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-semibold text-lg">{selectedQuest.name}</h4>
+                                {selectedQuest.quest_type && (
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                    selectedQuest.quest_type === 'epic' ? 'bg-purple-100 text-purple-700' :
+                                    selectedQuest.quest_type === 'quick_hit' ? 'bg-green-100 text-green-700' :
+                                    'bg-orange-100 text-orange-700'
+                                  }`}>
+                                    {selectedQuest.quest_type === 'epic' ? '🏆 Epic' :
+                                     selectedQuest.quest_type === 'quick_hit' ? '⚡ Quick Hit' :
+                                     '🎯 Challenge'}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-600">
+                                {selectedQuest.steps.length} steps
+                                {selectedQuest.quest_type && selectedQuest.quest_type !== 'epic' && (
+                                  <span className="ml-2 text-green-600">• Auto-enrolls on event</span>
+                                )}
+                              </p>
                             </div>
                             <div className="flex gap-2">
                               <button
                                 onClick={startQuest}
                                 disabled={!questUserId || questLoading}
                                 className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm"
+                                title={selectedQuest.quest_type === 'epic' ? 'Required for Epic quests' : 'Optional - auto-enrolls on event'}
                               >
-                                Start Quest
+                                {selectedQuest.quest_type === 'epic' ? 'Start Quest (Required)' : 'Start Quest'}
                               </button>
                               <button
                                 onClick={getQuestProgress}
@@ -2832,7 +2851,7 @@ export default function Home() {
                 </div>
                 <div>
                   <h3 className="text-xl font-bold">Data Access Request</h3>
-                  <p className="text-blue-100 text-sm">ProofChain Consent</p>
+                  <p className="text-blue-100 text-sm">FanPass Consent</p>
                 </div>
               </div>
             </div>
@@ -2911,7 +2930,7 @@ export default function Home() {
 
               {/* Footer */}
               <p className="text-xs text-gray-400 text-center mt-4">
-                You can revoke access at any time from your ProofChain dashboard.
+                You can revoke access at any time from your FanPass dashboard.
               </p>
             </div>
           </div>

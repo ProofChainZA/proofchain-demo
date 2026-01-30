@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ProofChain SDK Demo",
-  description: "Demo app for @proofchain/sdk and @proofchain/partner-sdk",
+  title: "FanPass SDK Demo",
+  description: "Demo app for FanPass SDK",
 };
 
 export default function RootLayout({
