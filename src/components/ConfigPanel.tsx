@@ -42,7 +42,7 @@ export default function ConfigPanel({ onInitialize, isConnected }: ConfigPanelPr
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">API Base URL</label>
           <input 
-            type="text" 
+            type="password" 
             value={baseUrl}
             disabled
             className="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-600 text-sm"
