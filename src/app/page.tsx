@@ -14,7 +14,7 @@ declare global {
   }
 }
 
-type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'tenant' | 'wallets' | 'quests' | 'pii';
+type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'tenant' | 'wallets' | 'quests' | 'pii' | 'leaderboard';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SDKInstance = any;
@@ -109,6 +109,29 @@ export default function Home() {
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [consentLoading, setConsentLoading] = useState(false);
   const [campaignInfo, setCampaignInfo] = useState<{ name: string; partner: string; description: string; views: string[] } | null>(null);
+
+  // Leaderboard demo state
+  const [leaderboardUserId, setLeaderboardUserId] = useState('');
+  const [cohorts, setCohorts] = useState<Array<{ id: string; name: string; slug: string; status: string; icon?: string; color?: string }>>([]);
+  const [selectedCohort, setSelectedCohort] = useState<{ id: string; name: string; slug: string } | null>(null);
+  const [cohortLeaderboard, setCohortLeaderboard] = useState<unknown>(null);
+  const [fanpassLeaderboard, setFanpassLeaderboard] = useState<unknown>(null);
+  const [userBreakdown, setUserBreakdown] = useState<unknown>(null);
+  const [userComparison, setUserComparison] = useState<unknown>(null);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardLimit, setLeaderboardLimit] = useState(20);
+  const [leaderboardTopN, setLeaderboardTopN] = useState(10);
+
+  // User attributes demo state
+  const [attributeUserId, setAttributeUserId] = useState('');
+  const [attributeKey, setAttributeKey] = useState('');
+  const [attributeValue, setAttributeValue] = useState('');
+  const [userAttributes, setUserAttributes] = useState<Record<string, any>>({});
+  const [attributesLoading, setAttributesLoading] = useState(false);
+
+  // Leaderboard filter state
+  const [leaderboardFilterKey, setLeaderboardFilterKey] = useState('');
+  const [leaderboardFilterValue, setLeaderboardFilterValue] = useState('');
 
   const addLog = useCallback((type: LogEntry['type'], message: string, data?: unknown) => {
     setLogs(prev => [{
@@ -1348,6 +1371,212 @@ export default function Home() {
   };
 
   // =========================================================================
+  // Leaderboard Demo (using Tenant SDK - Cohorts & Fanpass)
+  // =========================================================================
+  const listCohorts = async () => {
+    if (!tenantSDK) {
+      addLog('error', '❌ Tenant SDK not initialized');
+      return;
+    }
+
+    setLeaderboardLoading(true);
+    addLog('request', 'tenantSDK.cohorts.list({ status: "active" })');
+    try {
+      const cohortList = await tenantSDK.cohorts.list({ status: 'active' }) as Array<{ id: string; name: string; slug: string; status: string; icon?: string; color?: string }>;
+      setCohorts(cohortList);
+      addLog('success', `✅ Found ${cohortList.length} active cohorts`, cohortList);
+      setResult(cohortList);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setLeaderboardLoading(false);
+    }
+  };
+
+  const loadCohortLeaderboard = async () => {
+    if (!tenantSDK || !selectedCohort) {
+      addLog('error', '❌ No cohort selected');
+      return;
+    }
+
+    setLeaderboardLoading(true);
+    addLog('request', `tenantSDK.cohorts.getLeaderboard('${selectedCohort.id}', { limit: ${leaderboardLimit}, top_n: ${leaderboardTopN}, userId: '${leaderboardUserId || ''}' })`);
+    try {
+      const leaderboard = await tenantSDK.cohorts.getLeaderboard(selectedCohort.id, {
+        limit: leaderboardLimit,
+        top_n: leaderboardTopN,
+        userId: leaderboardUserId || undefined,
+      });
+      setCohortLeaderboard(leaderboard);
+      addLog('success', '✅ Cohort leaderboard fetched', leaderboard);
+      setResult(leaderboard);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setLeaderboardLoading(false);
+    }
+  };
+
+  const loadFanpassLeaderboard = async () => {
+    if (!tenantSDK) {
+      addLog('error', '❌ Tenant SDK not initialized');
+      return;
+    }
+
+    // Build filters object
+    const filters: Record<string, string> = {};
+    if (leaderboardFilterKey && leaderboardFilterValue) {
+      filters[leaderboardFilterKey] = leaderboardFilterValue;
+    }
+
+    setLeaderboardLoading(true);
+    addLog('request', `tenantSDK.fanpassLeaderboard.getLeaderboard({ limit: ${leaderboardLimit}, top_n: ${leaderboardTopN}, userId: '${leaderboardUserId || ''}', filters: ${JSON.stringify(filters)} })`);
+    try {
+      const leaderboard = await tenantSDK.fanpassLeaderboard.getLeaderboard({
+        limit: leaderboardLimit,
+        top_n: leaderboardTopN,
+        userId: leaderboardUserId || undefined,
+        filters: Object.keys(filters).length > 0 ? filters : undefined,
+      });
+      setFanpassLeaderboard(leaderboard);
+      addLog('success', '✅ Fanpass leaderboard fetched', leaderboard);
+      setResult(leaderboard);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setLeaderboardLoading(false);
+    }
+  };
+
+  const loadUserBreakdown = async () => {
+    if (!tenantSDK || !leaderboardUserId) {
+      addLog('error', '❌ User ID required');
+      return;
+    }
+
+    setLeaderboardLoading(true);
+    addLog('request', `tenantSDK.cohorts.getUserBreakdown('${leaderboardUserId}')`);
+    try {
+      const breakdown = await tenantSDK.cohorts.getUserBreakdown(leaderboardUserId);
+      setUserBreakdown(breakdown);
+      addLog('success', '✅ User cohort breakdown fetched', breakdown);
+      setResult(breakdown);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setLeaderboardLoading(false);
+    }
+  };
+
+  const loadUserComparison = async () => {
+    if (!tenantSDK || !leaderboardUserId) {
+      addLog('error', '❌ User ID required');
+      return;
+    }
+
+    setLeaderboardLoading(true);
+    addLog('request', `tenantSDK.fanpassLeaderboard.getUserComparison('${leaderboardUserId}')`);
+    try {
+      const comparison = await tenantSDK.fanpassLeaderboard.getUserComparison(leaderboardUserId);
+      setUserComparison(comparison);
+      addLog('success', '✅ User fanpass comparison fetched', comparison);
+      setResult(comparison);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setLeaderboardLoading(false);
+    }
+  };
+
+  // =========================================================================
+  // User Attributes Demo (for filtering tests)
+  // =========================================================================
+
+  const fetchUserAttributes = async () => {
+    if (!tenantSDK || !attributeUserId) {
+      addLog('error', '❌ User ID required');
+      return;
+    }
+
+    setAttributesLoading(true);
+    // Always use get() which takes external ID
+    addLog('request', `tenantSDK.users.get('${attributeUserId}')`);
+    try {
+      const user = await tenantSDK.users.get(attributeUserId);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setUserAttributes((user as any).attributes || {});
+      addLog('success', '✅ User fetched', user);
+      setResult(user);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setAttributesLoading(false);
+    }
+  };
+
+  const addUserAttribute = async () => {
+    if (!tenantSDK || !attributeUserId || !attributeKey || !attributeValue) {
+      addLog('error', '❌ User ID, key, and value required');
+      return;
+    }
+
+    setAttributesLoading(true);
+    addLog('request', `tenantSDK.users.update('${attributeUserId}', ...)`);
+    try {
+      const current = await tenantSDK.users.get(attributeUserId) as any;
+      const currentAttrs = current.attributes || {};
+      const updated = await tenantSDK.users.update(attributeUserId, {
+        attributes: { ...currentAttrs, [attributeKey]: attributeValue },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setUserAttributes((updated as any).attributes || {});
+      addLog('success', '✅ Attribute added', updated);
+      setResult(updated);
+      setAttributeKey('');
+      setAttributeValue('');
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setAttributesLoading(false);
+    }
+  };
+
+  const clearUserAttribute = async () => {
+    if (!tenantSDK || !attributeUserId || !attributeKey) {
+      addLog('error', '❌ User ID and key required');
+      return;
+    }
+
+    setAttributesLoading(true);
+    addLog('request', `Removing attribute ${attributeKey} from user ${attributeUserId}`);
+    try {
+      const current = await tenantSDK.users.get(attributeUserId) as any;
+      const currentAttrs = { ...(current.attributes || {}) };
+      delete currentAttrs[attributeKey];
+      const updated = await tenantSDK.users.update(attributeUserId, {
+        attributes: currentAttrs,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setUserAttributes((updated as any).attributes || {});
+      addLog('success', '✅ Attribute removed', updated);
+      setResult(updated);
+      setAttributeKey('');
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      addLog('error', `❌ Failed: ${errMsg}`);
+    } finally {
+      setAttributesLoading(false);
+    }
+  };
+
+  // =========================================================================
   // Quests Demo (using Tenant SDK)
   // =========================================================================
   const listAvailableQuests = async () => {
@@ -1651,6 +1880,12 @@ export default function Home() {
                   className={`px-6 py-3 text-sm font-medium ${activeTab === 'pii' ? 'border-b-2 border-red-500 text-red-600 bg-red-50' : 'text-gray-600 hover:text-gray-900'}`}
                 >
                   🔒 PII Protection
+                </button>
+                <button
+                  onClick={() => setActiveTab('leaderboard')}
+                  className={`px-6 py-3 text-sm font-medium ${activeTab === 'leaderboard' ? 'border-b-2 border-indigo-500 text-indigo-600 bg-indigo-50' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  🏆 Leaderboards
                 </button>
               </div>
 
@@ -3003,6 +3238,509 @@ export default function Home() {
                     </div>
                   </div>
                 )}
+
+                {/* Leaderboard Tab */}
+                {activeTab === 'leaderboard' && (
+                  <div className="space-y-6">
+                    <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                      <h3 className="font-semibold text-indigo-900">Cohort & Fanpass Leaderboards</h3>
+                      <p className="text-sm text-indigo-700 mt-1">
+                        Demo cohort-based leaderboards and Fanpass composite scores using <code className="bg-white px-1 rounded">tenantSDK.cohorts</code> and <code className="bg-white px-1 rounded">tenantSDK.fanpassLeaderboard</code>.
+                        Enter a User ID to always see their position in the leaderboard, even if they fall outside the top N.
+                      </p>
+                    </div>
+
+                    {/* User Selection */}
+                    <div className="border rounded-lg p-4">
+                      <h4 className="font-semibold mb-3">1. Select User for Breakdown/Comparison</h4>
+                      <div className="flex gap-4 items-end">
+                        <div className="flex-1">
+                          <label className="block text-xs font-medium text-gray-500 mb-1">User ID</label>
+                          <input
+                            type="text"
+                            value={leaderboardUserId}
+                            onChange={(e) => setLeaderboardUserId(e.target.value)}
+                            placeholder="e.g., demo_user_123 or select from generated users"
+                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                          />
+                        </div>
+                        {generatedUsers.length > 0 && (
+                          <select
+                            value={leaderboardUserId}
+                            onChange={(e) => setLeaderboardUserId(e.target.value)}
+                            className="px-3 py-2 border rounded-lg text-sm"
+                          >
+                            <option value="">Use generated user...</option>
+                            {generatedUsers.map(u => (
+                              <option key={u.userId} value={u.userId}>{u.userId}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Load Cohorts */}
+                    <div className="border rounded-lg p-4">
+                      <h4 className="font-semibold mb-3">2. Load Cohort Definitions</h4>
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          onClick={listCohorts}
+                          disabled={!tenantSDK || leaderboardLoading}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium"
+                        >
+                          {leaderboardLoading ? 'Loading...' : 'List Active Cohorts'}
+                        </button>
+                      </div>
+
+                      {cohorts.length > 0 && (
+                        <div className="mt-4">
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Select a Cohort for Leaderboard</label>
+                          <select
+                            value={selectedCohort?.id || ''}
+                            onChange={(e) => {
+                              const cohort = cohorts.find(c => c.id === e.target.value);
+                              setSelectedCohort(cohort || null);
+                              setCohortLeaderboard(null);
+                            }}
+                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                          >
+                            <option value="">Choose a cohort...</option>
+                            {cohorts.map(c => (
+                              <option key={c.id} value={c.id}>
+                                {c.icon ? `${c.icon} ` : ''}{c.name} ({c.slug})
+                              </option>
+                            ))}
+                          </select>
+
+                          {selectedCohort && (
+                            <div className="mt-4 flex gap-2 flex-wrap">
+                              <button
+                                onClick={loadCohortLeaderboard}
+                                disabled={!tenantSDK || leaderboardLoading}
+                                className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 disabled:opacity-50 text-sm font-medium"
+                              >
+                                Load {selectedCohort.name} Leaderboard
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Cohort Leaderboard Display */}
+                    {cohortLeaderboard && (
+                      <div className="border rounded-lg p-4">
+                        <h4 className="font-semibold mb-3">Cohort Leaderboard Results</h4>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium">Rank</th>
+                                <th className="px-3 py-2 text-left font-medium">User</th>
+                                <th className="px-3 py-2 text-left font-medium">Score</th>
+                                <th className="px-3 py-2 text-left font-medium">Global %</th>
+                                <th className="px-3 py-2 text-left font-medium">Filtered %</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                              {(cohortLeaderboard as any).leaderboard?.map((entry: any) => (
+                                <tr key={entry.rank} className={`hover:bg-gray-50 ${leaderboardUserId && entry.user_id === leaderboardUserId ? 'bg-indigo-50 ring-1 ring-indigo-300' : ''}`}>
+                                  <td className="px-3 py-2">
+                                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                                      entry.rank === 1 ? 'bg-yellow-100 text-yellow-800' :
+                                      entry.rank === 2 ? 'bg-gray-100 text-gray-800' :
+                                      entry.rank === 3 ? 'bg-orange-100 text-orange-800' :
+                                      'bg-gray-50 text-gray-600'
+                                    }`}>
+                                      {entry.rank}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex items-center gap-2">
+                                      {entry.user?.avatar_url && (
+                                        <img src={entry.user.avatar_url} alt="" className="w-6 h-6 rounded-full" />
+                                      )}
+                                      <div>
+                                        <div className="text-sm font-medium">
+                                          {entry.user?.display_name || entry.user?.first_name ? `${entry.user.first_name || ''} ${entry.user.last_name || ''}`.trim() : entry.user_id}
+                                        </div>
+                                        {entry.user?.display_name || entry.user?.first_name ? (
+                                          <div className="text-xs text-gray-400 font-mono">{entry.user_id}</div>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2">{entry.score?.toFixed(2)}</td>
+                                  <td className="px-3 py-2">{entry.percentile_global?.toFixed(1)}%</td>
+                                  <td className="px-3 py-2">{entry.percentile_filtered?.toFixed(1) ?? '-'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {/* Current User Position */}
+                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                        {(cohortLeaderboard as any).current_user && (
+                          <div className={`mt-4 p-4 rounded-lg border-2 ${(cohortLeaderboard as any).current_user_in_leaderboard ? 'border-green-300 bg-green-50' : 'border-amber-300 bg-amber-50'}`}>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h5 className="text-sm font-semibold flex items-center gap-2">
+                                  📍 Your Position
+                                  {(cohortLeaderboard as any).current_user_in_leaderboard ? (
+                                    <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full">In Top {leaderboardLimit}</span>
+                                  ) : (
+                                    <span className="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full">Outside Top {leaderboardLimit}</span>
+                                  )}
+                                </h5>
+                                <p className="text-xs text-gray-500 mt-1 font-mono">{(cohortLeaderboard as any).current_user.user_id}</p>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-2xl font-bold text-indigo-600">#{(cohortLeaderboard as any).current_user.rank}</div>
+                                <div className="text-xs text-gray-500">of {(cohortLeaderboard as any).total_users} users</div>
+                              </div>
+                            </div>
+                            <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+                              <div className="bg-white rounded p-2">
+                                <div className="text-sm font-bold">{(cohortLeaderboard as any).current_user.score?.toFixed(2)}</div>
+                                <div className="text-xs text-gray-500">Score</div>
+                              </div>
+                              <div className="bg-white rounded p-2">
+                                <div className="text-sm font-bold">{(cohortLeaderboard as any).current_user.percentile_global?.toFixed(1)}%</div>
+                                <div className="text-xs text-gray-500">Global %</div>
+                              </div>
+                              <div className="bg-white rounded p-2">
+                                <div className="text-sm font-bold">{(cohortLeaderboard as any).current_user.percentile_filtered?.toFixed(1) ?? '-'}%</div>
+                                <div className="text-xs text-gray-500">Filtered %</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                        {(cohortLeaderboard as any).group_stats && (
+                          <div className="mt-4 p-3 bg-gray-50 rounded-lg text-xs">
+                            <p><strong>Group Stats:</strong> Global avg: {(cohortLeaderboard as any).group_stats.global_avg_percentile?.toFixed(1)}% | Filtered avg: {(cohortLeaderboard as any).group_stats.filtered_avg_percentile?.toFixed(1) ?? '-'}%</p>
+                            <p><strong>Total Users:</strong> {(cohortLeaderboard as any).total_users}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Fanpass Leaderboard */}
+                    <div className="border rounded-lg p-4">
+                      <h4 className="font-semibold mb-3">3. Fanpass Composite Score Leaderboard</h4>
+
+                      {/* Filters */}
+                      <div className="flex gap-4 mb-4 p-3 bg-gray-50 rounded-lg">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Filter by Attribute Key</label>
+                          <input
+                            type="text"
+                            value={leaderboardFilterKey}
+                            onChange={(e) => setLeaderboardFilterKey(e.target.value)}
+                            placeholder="e.g., region"
+                            className="px-2 py-1 border rounded text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Filter Value</label>
+                          <input
+                            type="text"
+                            value={leaderboardFilterValue}
+                            onChange={(e) => setLeaderboardFilterValue(e.target.value)}
+                            placeholder="e.g., Gauteng"
+                            className="px-2 py-1 border rounded text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Country (optional)</label>
+                          <input
+                            type="text"
+                            placeholder="e.g., ZA"
+                            className="px-2 py-1 border rounded text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 flex-wrap mb-4">
+                        <button
+                          onClick={loadFanpassLeaderboard}
+                          disabled={!tenantSDK || leaderboardLoading}
+                          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm font-medium"
+                        >
+                          Load Fanpass Leaderboard
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs text-gray-500">Limit:</label>
+                          <select
+                            value={leaderboardLimit}
+                            onChange={(e) => setLeaderboardLimit(parseInt(e.target.value))}
+                            className="px-2 py-1 border rounded text-sm"
+                          >
+                            <option value="10">10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {fanpassLeaderboard && (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-purple-50">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium">Rank</th>
+                                <th className="px-3 py-2 text-left font-medium">User</th>
+                                <th className="px-3 py-2 text-left font-medium text-purple-700">Fan Score</th>
+                                <th className="px-3 py-2 text-left font-medium">Raw Score</th>
+                                <th className="px-3 py-2 text-left font-medium">Percentile</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                              {(fanpassLeaderboard as any).leaderboard?.map((entry: any) => (
+                                <tr key={entry.rank} className={`hover:bg-gray-50 ${leaderboardUserId && entry.user_id === leaderboardUserId ? 'bg-purple-50 ring-1 ring-purple-300' : ''}`}>
+                                  <td className="px-3 py-2">
+                                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                                      entry.rank === 1 ? 'bg-yellow-100 text-yellow-800' :
+                                      entry.rank === 2 ? 'bg-gray-100 text-gray-800' :
+                                      entry.rank === 3 ? 'bg-orange-100 text-orange-800' :
+                                      'bg-gray-50 text-gray-600'
+                                    }`}>
+                                      {entry.rank}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex items-center gap-2">
+                                      {entry.user?.avatar_url && (
+                                        <img src={entry.user.avatar_url} alt="" className="w-6 h-6 rounded-full" />
+                                      )}
+                                      <div>
+                                        <div className="text-sm font-medium">
+                                          {entry.user?.display_name || entry.user?.first_name ? `${entry.user.first_name || ''} ${entry.user.last_name || ''}`.trim() : entry.user_id}
+                                        </div>
+                                        {entry.user?.display_name || entry.user?.first_name ? (
+                                          <div className="text-xs text-gray-400 font-mono">{entry.user_id}</div>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2 font-semibold text-purple-700">{entry.fan_score?.toFixed(2)}</td>
+                                  <td className="px-3 py-2">{entry.raw_score?.toFixed(2)}</td>
+                                  <td className="px-3 py-2">{entry.percentile?.toFixed(1)}%</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {/* Current User Position */}
+                          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                          {(fanpassLeaderboard as any).current_user && (
+                            <div className={`mt-4 p-4 rounded-lg border-2 ${(fanpassLeaderboard as any).current_user_in_leaderboard ? 'border-green-300 bg-green-50' : 'border-amber-300 bg-amber-50'}`}>
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <h5 className="text-sm font-semibold flex items-center gap-2">
+                                    📍 Your Position
+                                    {(fanpassLeaderboard as any).current_user_in_leaderboard ? (
+                                      <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full">In Top {leaderboardLimit}</span>
+                                    ) : (
+                                      <span className="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full">Outside Top {leaderboardLimit}</span>
+                                    )}
+                                  </h5>
+                                  <p className="text-xs text-gray-500 mt-1 font-mono">{(fanpassLeaderboard as any).current_user.user_id}</p>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-2xl font-bold text-purple-600">#{(fanpassLeaderboard as any).current_user.rank}</div>
+                                  <div className="text-xs text-gray-500">of {(fanpassLeaderboard as any).total_users} users</div>
+                                </div>
+                              </div>
+                              <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+                                <div className="bg-white rounded p-2">
+                                  <div className="text-sm font-bold text-purple-700">{(fanpassLeaderboard as any).current_user.fan_score?.toFixed(2)}</div>
+                                  <div className="text-xs text-gray-500">Fan Score</div>
+                                </div>
+                                <div className="bg-white rounded p-2">
+                                  <div className="text-sm font-bold">{(fanpassLeaderboard as any).current_user.percentile?.toFixed(1)}%</div>
+                                  <div className="text-xs text-gray-500">Percentile</div>
+                                </div>
+                                <div className="bg-white rounded p-2">
+                                  <div className="text-sm font-bold">{Object.keys((fanpassLeaderboard as any).current_user.cohort_percentiles || {}).length}</div>
+                                  <div className="text-xs text-gray-500">Cohorts</div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                          {(fanpassLeaderboard as any).group_stats && (
+                            <div className="mt-4 p-3 bg-purple-50 rounded-lg text-xs">
+                              <p><strong>Group Stats:</strong> Avg Fan Score: {(fanpassLeaderboard as any).group_stats.avg_fan_score?.toFixed(2)} | Top {leaderboardTopN} Avg: {(fanpassLeaderboard as any).group_stats.top_n_avg_fan_score?.toFixed(2)}</p>
+                              <p><strong>Global:</strong> {(fanpassLeaderboard as any).total_users} users | Avg: {(fanpassLeaderboard as any).group_stats.global_avg_fan_score?.toFixed(2)}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* User Breakdown & Comparison */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* User Cohort Breakdown */}
+                      <div className="border rounded-lg p-4">
+                        <h4 className="font-semibold mb-3">User Cohort Breakdown</h4>
+                        <button
+                          onClick={loadUserBreakdown}
+                          disabled={!tenantSDK || !leaderboardUserId || leaderboardLoading}
+                          className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 disabled:opacity-50 text-sm font-medium w-full"
+                        >
+                          Get User Breakdown
+                        </button>
+                        {userBreakdown && (
+                          <div className="mt-4 space-y-2">
+                            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                            {(userBreakdown as any).cohorts?.map((c: any) => (
+                              <div key={c.cohort_id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                                <div className="flex items-center gap-2">
+                                  {c.icon && <span>{c.icon}</span>}
+                                  <span className="text-sm font-medium">{c.cohort_name}</span>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-sm font-bold text-indigo-600">{c.user_percentile?.toFixed(1)}%</div>
+                                  <div className="text-xs text-gray-500">Global: {c.global_group_avg_percentile?.toFixed(1)}%</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* User Fanpass Comparison */}
+                      <div className="border rounded-lg p-4">
+                        <h4 className="font-semibold mb-3">User Fanpass Comparison</h4>
+                        <button
+                          onClick={loadUserComparison}
+                          disabled={!tenantSDK || !leaderboardUserId || leaderboardLoading}
+                          className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 disabled:opacity-50 text-sm font-medium w-full"
+                        >
+                          Get User Comparison
+                        </button>
+                        {userComparison && (
+                          <div className="mt-4 space-y-2">
+                            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                            {(userComparison as any).cohorts?.map((c: any) => (
+                              <div key={c.cohort_id} className="flex items-center justify-between p-2 bg-purple-50 rounded">
+                                <div className="flex items-center gap-2">
+                                  {c.icon && <span>{c.icon}</span>}
+                                  <span className="text-sm font-medium">{c.cohort_name}</span>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-sm font-bold text-purple-600">{c.user_percentile?.toFixed(1)}%</div>
+                                  <div className="text-xs text-gray-500">Global: {c.global_group_avg_percentile?.toFixed(1)}%</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* User Attributes Management for Testing Filters */}
+                <div className="border rounded-lg p-4 bg-amber-50">
+                  <h4 className="font-semibold mb-3 text-amber-900">User Attributes Management</h4>
+                  <p className="text-xs text-amber-700 mb-4">
+                    Add custom attributes to users for testing leaderboard filters.
+                    Example attributes: <code className="bg-white px-1 rounded">region</code>, <code className="bg-white px-1 rounded">team</code>, <code className="bg-white px-1 rounded">vip_status</code>
+                  </p>
+
+                  {/* User Selection */}
+                  <div className="mb-4">
+                    <label className="block text-xs font-medium text-amber-800 mb-1">User ID</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={attributeUserId}
+                        onChange={(e) => setAttributeUserId(e.target.value)}
+                        placeholder="e.g., demo_user_123"
+                        className="flex-1 px-3 py-2 border rounded-lg text-sm"
+                      />
+                      <select
+                        value={attributeUserId}
+                        onChange={(e) => setAttributeUserId(e.target.value)}
+                        className="px-3 py-2 border rounded-lg text-sm"
+                      >
+                        <option value="">Select generated user...</option>
+                        {generatedUsers.map(u => (
+                          <option key={u.userId} value={u.userId}>{u.userId}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* View Current Attributes */}
+                  <div className="mb-4">
+                    <button
+                      onClick={fetchUserAttributes}
+                      disabled={!tenantSDK || !attributeUserId || attributesLoading}
+                      className="px-4 py-2 bg-amber-200 text-amber-800 rounded-lg hover:bg-amber-300 disabled:opacity-50 text-sm font-medium"
+                    >
+                      {attributesLoading ? 'Loading...' : 'View Current Attributes'}
+                    </button>
+                    {Object.keys(userAttributes).length > 0 && (
+                      <div className="mt-2 p-2 bg-white rounded border">
+                        <pre className="text-xs overflow-auto">{JSON.stringify(userAttributes, null, 2)}</pre>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add Attribute */}
+                  <div className="mb-4">
+                    <h5 className="text-sm font-medium mb-2">Add/Update Attribute</h5>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={attributeKey}
+                        onChange={(e) => setAttributeKey(e.target.value)}
+                        placeholder="Key (e.g., region)"
+                        className="flex-1 px-3 py-2 border rounded-lg text-sm"
+                      />
+                      <input
+                        type="text"
+                        value={attributeValue}
+                        onChange={(e) => setAttributeValue(e.target.value)}
+                        placeholder="Value (e.g., Gauteng)"
+                        className="flex-1 px-3 py-2 border rounded-lg text-sm"
+                      />
+                      <button
+                        onClick={addUserAttribute}
+                        disabled={!tenantSDK || !attributeUserId || !attributeKey || !attributeValue || attributesLoading}
+                        className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 text-sm font-medium"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Remove Attribute */}
+                  <div>
+                    <h5 className="text-sm font-medium mb-2">Remove Attribute</h5>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={attributeKey}
+                        onChange={(e) => setAttributeKey(e.target.value)}
+                        placeholder="Key to remove"
+                        className="flex-1 px-3 py-2 border rounded-lg text-sm"
+                      />
+                      <button
+                        onClick={clearUserAttribute}
+                        disabled={!tenantSDK || !attributeUserId || !attributeKey || attributesLoading}
+                        className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50 text-sm font-medium"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
