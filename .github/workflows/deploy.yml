@@ -13,7 +13,7 @@ permissions:
 env:
   AWS_REGION: af-south-1
   ECR_REGISTRY: 708424746880.dkr.ecr.af-south-1.amazonaws.com
-  IMAGE_NAME: demo-app
+  IMAGE_NAME: proofchain-demo-app
   EKS_CLUSTER: proofchain-cluster
 
 jobs:
