@@ -8,6 +8,7 @@ interface ConfigPanelProps {
     integratorKey: string;
     campaignId: string;
     tenantApiKey: string;
+    integratorId?: string;
   }) => void;
   isConnected: boolean;
 }
@@ -18,8 +19,28 @@ export default function ConfigPanel({ onInitialize, isConnected }: ConfigPanelPr
   const [campaignId, setCampaignId] = useState('b601323a-245d-45df-9008-3ad828038f3e');
   const [tenantApiKey, setTenantApiKey] = useState('att_watt_yyqHNUS6jRAhkqmEExSol_uPHTBDNTzB_GiOFaQTLAU');
 
-  const handleInitialize = () => {
-    onInitialize({ baseUrl, integratorKey, campaignId, tenantApiKey });
+  const handleInitialize = async () => {
+    let integratorId: string | undefined;
+
+    // Fetch integrator ID from the API using the tenant key
+    if (tenantApiKey) {
+      try {
+        const res = await fetch(`${baseUrl}/integrators/?limit=1`, {
+          headers: { 'X-API-Key': tenantApiKey },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const integrators = data.integrators || data.items || data;
+          if (Array.isArray(integrators) && integrators.length > 0) {
+            integratorId = integrators[0].id;
+          }
+        }
+      } catch {
+        // Non-critical — OTT tab just won't work
+      }
+    }
+
+    onInitialize({ baseUrl, integratorKey, campaignId, tenantApiKey, integratorId });
   };
 
   return (

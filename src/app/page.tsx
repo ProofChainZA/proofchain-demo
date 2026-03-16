@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import ConfigPanel from '@/components/ConfigPanel';
 import LogPanel, { LogEntry } from '@/components/LogPanel';
 
@@ -14,7 +14,7 @@ declare global {
   }
 }
 
-type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'tenant' | 'wallets' | 'quests' | 'pii' | 'leaderboard';
+type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'tenant' | 'wallets' | 'quests' | 'pii' | 'leaderboard' | 'ott';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SDKInstance = any;
@@ -133,6 +133,18 @@ export default function Home() {
   const [leaderboardFilterKey, setLeaderboardFilterKey] = useState('');
   const [leaderboardFilterValue, setLeaderboardFilterValue] = useState('');
 
+  // OTT demo state
+  const [integratorId, setIntegratorId] = useState('');
+  const [ottToken, setOttToken] = useState('');
+  const [ottExpiresIn, setOttExpiresIn] = useState(0);
+  const [ottRedeemResult, setOttRedeemResult] = useState<unknown>(null);
+  const [ottLoading, setOttLoading] = useState(false);
+  const [ottStep, setOttStep] = useState(0);
+  const [ottCountdown, setOttCountdown] = useState(0);
+  const [baseUrlRef, setBaseUrlRef] = useState('');
+  const [integratorKeyRef, setIntegratorKeyRef] = useState('');
+  const [tenantApiKeyRef, setTenantApiKeyRef] = useState('');
+
   const addLog = useCallback((type: LogEntry['type'], message: string, data?: unknown) => {
     setLogs(prev => [{
       id: crypto.randomUUID(),
@@ -150,8 +162,16 @@ export default function Home() {
     integratorKey: string;
     campaignId: string;
     tenantApiKey: string;
+    integratorId?: string;
   }) => {
     addLog('info', 'Initializing SDKs...');
+    setBaseUrlRef(config.baseUrl);
+    setIntegratorKeyRef(config.integratorKey);
+    setTenantApiKeyRef(config.tenantApiKey);
+    if (config.integratorId) {
+      setIntegratorId(config.integratorId);
+      addLog('info', `Integrator ID resolved: ${config.integratorId}`);
+    }
 
     try {
       // Initialize Partner SDK
@@ -1787,6 +1807,113 @@ export default function Home() {
     }
   };
 
+  // =========================================================================
+  // OTT Demo Functions
+  // =========================================================================
+  const generateTestOtt = async () => {
+    if (!tenantSDK || !integratorId) {
+      addLog('error', '❌ Tenant SDK not initialized or integrator ID missing');
+      return;
+    }
+    setOttLoading(true);
+    setOttRedeemResult(null);
+    setOttStep(1);
+    try {
+      addLog('request', `POST /integrators/${integratorId}/ott/test`);
+      const res = await fetch(`${baseUrlRef}/integrators/${integratorId}/ott/test`, {
+        method: 'POST',
+        headers: { 'X-API-Key': tenantApiKeyRef, 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setOttToken(data.ott);
+      setOttExpiresIn(data.expires_in);
+      setOttCountdown(data.expires_in);
+      addLog('success', `✅ Test OTT generated (expires in ${data.expires_in}s)`, data);
+      setResult(data);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      addLog('error', `❌ Generate OTT failed: ${errMsg}`);
+      setOttStep(0);
+    } finally {
+      setOttLoading(false);
+    }
+  };
+
+  const redeemOtt = async () => {
+    if (!ottToken || !integratorId) {
+      addLog('error', '❌ No OTT token to redeem');
+      return;
+    }
+    setOttLoading(true);
+    setOttStep(2);
+    try {
+      addLog('request', `POST /integrators/${integratorId}/ott/redeem (with integrator API key)`);
+      const res = await fetch(`${baseUrlRef}/integrators/${integratorId}/ott/redeem`, {
+        method: 'POST',
+        headers: { 'X-API-Key': integratorKeyRef, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ott: ottToken }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setOttRedeemResult(data);
+      setOttStep(3);
+      addLog('success', '✅ OTT redeemed successfully', data);
+      setResult(data);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      addLog('error', `❌ Redeem OTT failed: ${errMsg}`);
+    } finally {
+      setOttLoading(false);
+    }
+  };
+
+  const tryRedeemAgain = async () => {
+    if (!ottToken || !integratorId) return;
+    setOttLoading(true);
+    try {
+      addLog('request', `POST /integrators/${integratorId}/ott/redeem (second attempt — should fail)`);
+      const res = await fetch(`${baseUrlRef}/integrators/${integratorId}/ott/redeem`, {
+        method: 'POST',
+        headers: { 'X-API-Key': integratorKeyRef, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ott: ottToken }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        addLog('info', `✅ Correctly rejected: "${data.detail}" — token was already consumed`);
+      } else {
+        addLog('error', '❌ Unexpected: token was redeemed twice!');
+      }
+      setResult(data);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      addLog('error', `❌ Request failed: ${errMsg}`);
+    } finally {
+      setOttLoading(false);
+    }
+  };
+
+  const resetOttDemo = () => {
+    setOttToken('');
+    setOttExpiresIn(0);
+    setOttRedeemResult(null);
+    setOttStep(0);
+    setOttCountdown(0);
+  };
+
+  // Countdown timer for OTT expiry
+  useEffect(() => {
+    if (ottCountdown <= 0 || ottStep !== 1) return;
+    const timer = setTimeout(() => setOttCountdown(prev => prev - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [ottCountdown, ottStep]);
+
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
@@ -1886,6 +2013,12 @@ export default function Home() {
                   className={`px-6 py-3 text-sm font-medium ${activeTab === 'leaderboard' ? 'border-b-2 border-indigo-500 text-indigo-600 bg-indigo-50' : 'text-gray-600 hover:text-gray-900'}`}
                 >
                   🏆 Leaderboards
+                </button>
+                <button
+                  onClick={() => setActiveTab('ott')}
+                  className={`px-6 py-3 text-sm font-medium ${activeTab === 'ott' ? 'border-b-2 border-teal-500 text-teal-600 bg-teal-50' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  🔑 OTT Auth
                 </button>
               </div>
 
@@ -3641,6 +3774,139 @@ export default function Home() {
                         )}
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* OTT Auth Tab */}
+                {activeTab === 'ott' && (
+                  <div className="space-y-6">
+                    <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
+                      <h3 className="font-semibold text-teal-900">One-Time Token (OTT) Authentication</h3>
+                      <p className="text-sm text-teal-700 mt-1">
+                        Demo the OTT auth flow: generate a test token, redeem it as an integrator, and see the session data / JWT returned.
+                        OTT tokens are single-use — a second redemption attempt will fail.
+                      </p>
+                    </div>
+
+                    {!integratorId && (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
+                        No integrator ID found. Make sure the tenant API key is valid and at least one integrator exists.
+                      </div>
+                    )}
+
+                    {integratorId && (
+                      <div className="space-y-4">
+                        {/* Step 1: Generate Test Token */}
+                        <div className={`border rounded-lg p-4 ${ottStep >= 1 ? 'border-teal-300 bg-teal-50/50' : ''}`}>
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${ottStep >= 1 ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-600'}`}>1</div>
+                            <h4 className="font-semibold">Generate Test Token</h4>
+                            {ottStep === 0 && (
+                              <span className="text-xs text-gray-500 ml-auto">Simulates end-user requesting an OTT</span>
+                            )}
+                          </div>
+                          {ottStep === 0 && (
+                            <button
+                              onClick={generateTestOtt}
+                              disabled={ottLoading}
+                              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm font-medium"
+                            >
+                              {ottLoading ? 'Generating...' : 'Generate OTT'}
+                            </button>
+                          )}
+                          {ottStep >= 1 && ottToken && (
+                            <div className="space-y-2">
+                              <div className="bg-white border rounded-lg p-3">
+                                <label className="text-xs font-medium text-gray-500 block mb-1">Opaque Token</label>
+                                <code className="text-sm break-all text-teal-700">{ottToken}</code>
+                              </div>
+                              <div className="flex items-center gap-4 text-sm">
+                                <span className="text-gray-500">Expires in:</span>
+                                <span className={`font-mono font-bold ${ottCountdown <= 30 ? 'text-red-600' : 'text-teal-600'}`}>
+                                  {ottCountdown}s
+                                </span>
+                                {ottCountdown <= 0 && <span className="text-red-500 text-xs">(expired)</span>}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Step 2: Redeem Token */}
+                        <div className={`border rounded-lg p-4 ${ottStep >= 2 ? 'border-teal-300 bg-teal-50/50' : ''}`}>
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${ottStep >= 2 ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-600'}`}>2</div>
+                            <h4 className="font-semibold">Redeem Token (Integrator Side)</h4>
+                            {ottStep < 1 && (
+                              <span className="text-xs text-gray-500 ml-auto">Partner backend redeems the OTT</span>
+                            )}
+                          </div>
+                          {ottStep === 1 && (
+                            <div className="space-y-2">
+                              <p className="text-sm text-gray-600">
+                                The integrator calls <code className="bg-gray-100 px-1 rounded text-xs">POST /integrators/{'{id}'}/ott/redeem</code> with their API key and the OTT token.
+                              </p>
+                              <button
+                                onClick={redeemOtt}
+                                disabled={ottLoading || ottCountdown <= 0}
+                                className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm font-medium"
+                              >
+                                {ottLoading ? 'Redeeming...' : 'Redeem OTT'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Step 3: Result */}
+                        <div className={`border rounded-lg p-4 ${ottStep >= 3 ? 'border-teal-300 bg-teal-50/50' : ''}`}>
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${ottStep >= 3 ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-600'}`}>3</div>
+                            <h4 className="font-semibold">Session Result</h4>
+                          </div>
+                          {ottStep >= 3 && ottRedeemResult && (
+                            <div className="space-y-3">
+                              <div className="bg-white border rounded-lg p-3">
+                                <label className="text-xs font-medium text-gray-500 block mb-1">Redemption Response</label>
+                                <pre className="text-xs overflow-auto text-gray-800 max-h-48">
+                                  {JSON.stringify(ottRedeemResult, null, 2)}
+                                </pre>
+                              </div>
+                              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                              {(ottRedeemResult as any)?.jwt && (
+                                <div className="bg-white border rounded-lg p-3">
+                                  <label className="text-xs font-medium text-gray-500 block mb-1">Decoded JWT Payload</label>
+                                  <pre className="text-xs overflow-auto text-gray-800 max-h-48">
+                                    {(() => {
+                                      try {
+                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                        const parts = ((ottRedeemResult as any).jwt as string).split('.');
+                                        return JSON.stringify(JSON.parse(atob(parts[1])), null, 2);
+                                      } catch {
+                                        return 'Could not decode JWT';
+                                      }
+                                    })()}
+                                  </pre>
+                                </div>
+                              )}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={tryRedeemAgain}
+                                  disabled={ottLoading}
+                                  className="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 disabled:opacity-50 text-sm font-medium"
+                                >
+                                  {ottLoading ? 'Trying...' : 'Try Redeem Again (should fail)'}
+                                </button>
+                                <button
+                                  onClick={resetOttDemo}
+                                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium"
+                                >
+                                  Reset Demo
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
