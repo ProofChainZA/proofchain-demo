@@ -141,6 +141,10 @@ export default function Home() {
   const [ottLoading, setOttLoading] = useState(false);
   const [ottStep, setOttStep] = useState(0);
   const [ottCountdown, setOttCountdown] = useState(0);
+  const [ottIntegratorId, setOttIntegratorId] = useState('');
+  const [ottIntegratorKey, setOttIntegratorKey] = useState('');
+  const [ottSetupDone, setOttSetupDone] = useState(false);
+  const [ottSetupLoading, setOttSetupLoading] = useState(false);
   const [baseUrlRef, setBaseUrlRef] = useState('');
   const [integratorKeyRef, setIntegratorKeyRef] = useState('');
   const [tenantApiKeyRef, setTenantApiKeyRef] = useState('');
@@ -1810,17 +1814,46 @@ export default function Home() {
   // =========================================================================
   // OTT Demo Functions
   // =========================================================================
+  const setupOttIntegrator = async () => {
+    if (!baseUrlRef || !tenantApiKeyRef) {
+      addLog('error', '❌ Initialize SDKs first');
+      return;
+    }
+    setOttSetupLoading(true);
+    try {
+      addLog('request', 'POST /integrators/demo-setup');
+      const res = await fetch(`${baseUrlRef}/integrators/demo-setup`, {
+        method: 'POST',
+        headers: { 'X-API-Key': tenantApiKeyRef, 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setOttIntegratorId(data.id);
+      setOttIntegratorKey(data.api_key);
+      setOttSetupDone(true);
+      addLog('success', `✅ Demo integrator ready: ${data.name} (${data.id})`);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      addLog('error', `❌ Demo setup failed: ${errMsg}`);
+    } finally {
+      setOttSetupLoading(false);
+    }
+  };
+
   const generateTestOtt = async () => {
-    if (!tenantSDK || !integratorId) {
-      addLog('error', '❌ Tenant SDK not initialized or integrator ID missing');
+    if (!ottSetupDone || !ottIntegratorId) {
+      addLog('error', '❌ Demo integrator not set up');
       return;
     }
     setOttLoading(true);
     setOttRedeemResult(null);
     setOttStep(1);
     try {
-      addLog('request', `POST /integrators/${integratorId}/ott/test`);
-      const res = await fetch(`${baseUrlRef}/integrators/${integratorId}/ott/test`, {
+      addLog('request', `POST /integrators/${ottIntegratorId}/ott/test`);
+      const res = await fetch(`${baseUrlRef}/integrators/${ottIntegratorId}/ott/test`, {
         method: 'POST',
         headers: { 'X-API-Key': tenantApiKeyRef, 'Content-Type': 'application/json' },
       });
@@ -1844,17 +1877,17 @@ export default function Home() {
   };
 
   const redeemOtt = async () => {
-    if (!ottToken || !integratorId) {
+    if (!ottToken || !ottIntegratorId) {
       addLog('error', '❌ No OTT token to redeem');
       return;
     }
     setOttLoading(true);
     setOttStep(2);
     try {
-      addLog('request', `POST /integrators/${integratorId}/ott/redeem (with integrator API key)`);
-      const res = await fetch(`${baseUrlRef}/integrators/${integratorId}/ott/redeem`, {
+      addLog('request', `POST /integrators/${ottIntegratorId}/ott/redeem (with integrator API key)`);
+      const res = await fetch(`${baseUrlRef}/integrators/${ottIntegratorId}/ott/redeem`, {
         method: 'POST',
-        headers: { 'X-API-Key': integratorKeyRef, 'Content-Type': 'application/json' },
+        headers: { 'X-API-Key': ottIntegratorKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ott: ottToken }),
       });
       if (!res.ok) {
@@ -1875,13 +1908,13 @@ export default function Home() {
   };
 
   const tryRedeemAgain = async () => {
-    if (!ottToken || !integratorId) return;
+    if (!ottToken || !ottIntegratorId) return;
     setOttLoading(true);
     try {
-      addLog('request', `POST /integrators/${integratorId}/ott/redeem (second attempt — should fail)`);
-      const res = await fetch(`${baseUrlRef}/integrators/${integratorId}/ott/redeem`, {
+      addLog('request', `POST /integrators/${ottIntegratorId}/ott/redeem (second attempt — should fail)`);
+      const res = await fetch(`${baseUrlRef}/integrators/${ottIntegratorId}/ott/redeem`, {
         method: 'POST',
-        headers: { 'X-API-Key': integratorKeyRef, 'Content-Type': 'application/json' },
+        headers: { 'X-API-Key': ottIntegratorKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ott: ottToken }),
       });
       const data = await res.json();
@@ -3788,14 +3821,33 @@ export default function Home() {
                       </p>
                     </div>
 
-                    {!integratorId && (
-                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
-                        No integrator ID found. Make sure the tenant API key is valid and at least one integrator exists.
+                    {/* Step 0: Provision demo integrator */}
+                    {!ottSetupDone && (
+                      <div className="border rounded-lg p-4">
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm bg-gray-200 text-gray-600`}>0</div>
+                          <h4 className="font-semibold">Set Up Demo Integrator</h4>
+                          <span className="text-xs text-gray-500 ml-auto">Creates or reuses a demo integrator with OTT enabled</span>
+                        </div>
+                        {!baseUrlRef || !tenantApiKeyRef ? (
+                          <p className="text-sm text-yellow-700">Initialize SDKs first to set up the demo integrator.</p>
+                        ) : (
+                          <button
+                            onClick={setupOttIntegrator}
+                            disabled={ottSetupLoading}
+                            className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm font-medium"
+                          >
+                            {ottSetupLoading ? 'Setting up...' : 'Set Up Demo Integrator'}
+                          </button>
+                        )}
                       </div>
                     )}
 
-                    {integratorId && (
+                    {ottSetupDone && (
                       <div className="space-y-4">
+                        <div className="text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-3 py-2">
+                          Demo integrator: <code className="font-mono">{ottIntegratorId}</code>
+                        </div>
                         {/* Step 1: Generate Test Token */}
                         <div className={`border rounded-lg p-4 ${ottStep >= 1 ? 'border-teal-300 bg-teal-50/50' : ''}`}>
                           <div className="flex items-center gap-3 mb-3">
