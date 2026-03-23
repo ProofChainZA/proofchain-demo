@@ -1814,17 +1814,16 @@ export default function Home() {
   // =========================================================================
   // OTT Demo Functions
   // =========================================================================
+  const OTT_BASE_URL = 'https://api.proofchain.co.za';
+  const OTT_TENANT_KEY = 'att_watt_yyqHNUS6jRAhkqmEExSol_uPHTBDNTzB_GiOFaQTLAU';
+
   const setupOttIntegrator = async () => {
-    if (!baseUrlRef || !tenantApiKeyRef) {
-      addLog('error', '❌ Initialize SDKs first');
-      return;
-    }
     setOttSetupLoading(true);
     try {
       addLog('request', 'POST /integrators/demo-setup');
-      const res = await fetch(`${baseUrlRef}/integrators/demo-setup`, {
+      const res = await fetch(`${OTT_BASE_URL}/integrators/demo-setup`, {
         method: 'POST',
-        headers: { 'X-API-Key': tenantApiKeyRef, 'Content-Type': 'application/json' },
+        headers: { 'X-API-Key': OTT_TENANT_KEY, 'Content-Type': 'application/json' },
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -1853,9 +1852,9 @@ export default function Home() {
     setOttStep(1);
     try {
       addLog('request', `POST /integrators/${ottIntegratorId}/ott/test`);
-      const res = await fetch(`${baseUrlRef}/integrators/${ottIntegratorId}/ott/test`, {
+      const res = await fetch(`${OTT_BASE_URL}/integrators/${ottIntegratorId}/ott/test`, {
         method: 'POST',
-        headers: { 'X-API-Key': tenantApiKeyRef, 'Content-Type': 'application/json' },
+        headers: { 'X-API-Key': OTT_TENANT_KEY, 'Content-Type': 'application/json' },
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -1885,7 +1884,7 @@ export default function Home() {
     setOttStep(2);
     try {
       addLog('request', `POST /integrators/${ottIntegratorId}/ott/redeem (with integrator API key)`);
-      const res = await fetch(`${baseUrlRef}/integrators/${ottIntegratorId}/ott/redeem`, {
+      const res = await fetch(`${OTT_BASE_URL}/integrators/${ottIntegratorId}/ott/redeem`, {
         method: 'POST',
         headers: { 'X-API-Key': ottIntegratorKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ott: ottToken }),
@@ -1912,7 +1911,7 @@ export default function Home() {
     setOttLoading(true);
     try {
       addLog('request', `POST /integrators/${ottIntegratorId}/ott/redeem (second attempt — should fail)`);
-      const res = await fetch(`${baseUrlRef}/integrators/${ottIntegratorId}/ott/redeem`, {
+      const res = await fetch(`${OTT_BASE_URL}/integrators/${ottIntegratorId}/ott/redeem`, {
         method: 'POST',
         headers: { 'X-API-Key': ottIntegratorKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ott: ottToken }),
@@ -3829,17 +3828,13 @@ export default function Home() {
                           <h4 className="font-semibold">Set Up Demo Integrator</h4>
                           <span className="text-xs text-gray-500 ml-auto">Creates or reuses a demo integrator with OTT enabled</span>
                         </div>
-                        {!baseUrlRef || !tenantApiKeyRef ? (
-                          <p className="text-sm text-yellow-700">Initialize SDKs first to set up the demo integrator.</p>
-                        ) : (
-                          <button
-                            onClick={setupOttIntegrator}
-                            disabled={ottSetupLoading}
-                            className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm font-medium"
-                          >
-                            {ottSetupLoading ? 'Setting up...' : 'Set Up Demo Integrator'}
-                          </button>
-                        )}
+                        <button
+                          onClick={setupOttIntegrator}
+                          disabled={ottSetupLoading}
+                          className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm font-medium"
+                        >
+                          {ottSetupLoading ? 'Setting up...' : 'Set Up Demo Integrator'}
+                        </button>
                       </div>
                     )}
 
