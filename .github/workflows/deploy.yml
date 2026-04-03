@@ -61,9 +61,11 @@ jobs:
           docker push $ECR_REGISTRY/$IMAGE_NAME:latest
 
       - name: Set up kubeconfig
+        env:
+          K3S_KUBECONFIG: ${{ secrets.K3S_KUBECONFIG }}
         run: |
           mkdir -p ~/.kube
-          echo "${{ secrets.K3S_KUBECONFIG }}" > ~/.kube/config
+          printenv K3S_KUBECONFIG > ~/.kube/config
           chmod 600 ~/.kube/config
 
       - name: Deploy to k3s
