@@ -14,7 +14,7 @@ declare global {
   }
 }
 
-type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'tenant' | 'wallets' | 'quests' | 'pii' | 'leaderboard' | 'ott';
+type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'hot' | 'tenant' | 'wallets' | 'quests' | 'pii' | 'leaderboard' | 'ott';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SDKInstance = any;
@@ -148,6 +148,13 @@ export default function Home() {
   const [baseUrlRef, setBaseUrlRef] = useState('');
   const [integratorKeyRef, setIntegratorKeyRef] = useState('');
   const [tenantApiKeyRef, setTenantApiKeyRef] = useState('');
+
+  // Hot attestation demo state
+  const [hotUserId, setHotUserId] = useState('');
+  const [hotEventType, setHotEventType] = useState('critical_transaction');
+  const [hotSending, setHotSending] = useState(false);
+  const [hotResults, setHotResults] = useState<Array<{ eventId: string; status: string; sentAt: string; hot: boolean }>>([]);
+  const [hotCompareNormal, setHotCompareNormal] = useState(false);
 
   const addLog = useCallback((type: LogEntry['type'], message: string, data?: unknown) => {
     setLogs(prev => [{
@@ -299,6 +306,138 @@ export default function Home() {
       addLog('error', `❌ Event generation failed: ${errMsg}`);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  // =========================================================================
+  // HOT ATTESTATION DEMO
+  // =========================================================================
+
+  const sendHotEvent = async () => {
+    if (!ingestionClient) {
+      addLog('error', '❌ Ingestion Client not initialized');
+      return;
+    }
+
+    setHotSending(true);
+    const userId = hotUserId || `demo_hot_${Math.floor(Math.random() * 9000) + 1000}`;
+    if (!hotUserId) setHotUserId(userId);
+
+    try {
+      addLog('request', `🔥 Sending HOT event (immediate on-chain attestation)...`);
+      const sentAt = new Date().toISOString();
+
+      const response = await ingestionClient.ingest({
+        userId,
+        eventType: hotEventType,
+        eventSource: 'hot_demo',
+        data: {
+          priority: 'critical',
+          hot: true,
+          demo: true,
+          timestamp: sentAt,
+          tx_value: (Math.random() * 10000).toFixed(2),
+        },
+        hot: true,
+      });
+
+      addLog('success', `🔥 Hot event accepted: ${response.eventId} — will be attested immediately (1 TX per event)`, response);
+      setHotResults(prev => [{ eventId: response.eventId, status: response.status, sentAt, hot: true }, ...prev]);
+      setResult(response);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      addLog('error', `❌ Hot event failed: ${errMsg}`);
+    } finally {
+      setHotSending(false);
+    }
+  };
+
+  const sendNormalEvent = async () => {
+    if (!ingestionClient) {
+      addLog('error', '❌ Ingestion Client not initialized');
+      return;
+    }
+
+    setHotSending(true);
+    const userId = hotUserId || `demo_hot_${Math.floor(Math.random() * 9000) + 1000}`;
+    if (!hotUserId) setHotUserId(userId);
+
+    try {
+      addLog('request', `📦 Sending NORMAL event (batch attestation)...`);
+      const sentAt = new Date().toISOString();
+
+      const response = await ingestionClient.ingest({
+        userId,
+        eventType: hotEventType,
+        eventSource: 'hot_demo',
+        data: {
+          priority: 'normal',
+          hot: false,
+          demo: true,
+          timestamp: sentAt,
+          tx_value: (Math.random() * 10000).toFixed(2),
+        },
+        // hot: false (default) — goes through batch path
+      });
+
+      addLog('success', `📦 Normal event accepted: ${response.eventId} — will be batched (~60s+)`, response);
+      setHotResults(prev => [{ eventId: response.eventId, status: response.status, sentAt, hot: false }, ...prev]);
+      setResult(response);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      addLog('error', `❌ Normal event failed: ${errMsg}`);
+    } finally {
+      setHotSending(false);
+    }
+  };
+
+  const sendHotBurst = async () => {
+    if (!ingestionClient) {
+      addLog('error', '❌ Ingestion Client not initialized');
+      return;
+    }
+
+    setHotSending(true);
+    const userId = hotUserId || `demo_hot_${Math.floor(Math.random() * 9000) + 1000}`;
+    if (!hotUserId) setHotUserId(userId);
+
+    try {
+      addLog('request', `🔥 Sending 3 hot + 3 normal events side-by-side...`);
+
+      const events = [];
+      for (let i = 0; i < 3; i++) {
+        events.push({
+          userId,
+          eventType: hotEventType,
+          eventSource: 'hot_demo',
+          data: { priority: 'critical', hot: true, demo: true, burst_index: i },
+          hot: true,
+        });
+        events.push({
+          userId,
+          eventType: hotEventType,
+          eventSource: 'hot_demo',
+          data: { priority: 'normal', hot: false, demo: true, burst_index: i },
+        });
+      }
+
+      const response = await ingestionClient.ingestBatch({ events });
+      addLog('success', `✅ Burst sent: ${response.queued} events (3 hot + 3 normal)`, response);
+
+      const sentAt = new Date().toISOString();
+      const newResults = (response.results || []).map((r: { eventId: string; status: string }, idx: number) => ({
+        eventId: r.eventId,
+        status: r.status,
+        sentAt,
+        hot: idx % 2 === 0,
+      }));
+      setHotResults(prev => [...newResults, ...prev]);
+      setResult(response);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      addLog('error', `❌ Burst failed: ${errMsg}`);
+    } finally {
+      setHotSending(false);
     }
   };
 
@@ -2017,6 +2156,12 @@ export default function Home() {
                   📊 Events
                 </button>
                 <button
+                  onClick={() => setActiveTab('hot')}
+                  className={`px-6 py-3 text-sm font-medium ${activeTab === 'hot' ? 'border-b-2 border-orange-500 text-orange-600 bg-orange-50' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  🔥 Hot Attestation
+                </button>
+                <button
                   onClick={() => setActiveTab('tenant')}
                   className={`px-6 py-3 text-sm font-medium ${activeTab === 'tenant' ? 'border-b-2 border-gray-500 text-gray-600 bg-gray-50' : 'text-gray-600 hover:text-gray-900'}`}
                 >
@@ -2710,6 +2855,210 @@ export default function Home() {
                       <button onClick={getSearchStats} disabled={!tenantSDK} className="px-4 py-2 bg-cyan-100 text-cyan-700 rounded-lg hover:bg-cyan-200 disabled:opacity-50 text-sm font-medium">
                         Search Stats
                       </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Hot Attestation Tab */}
+                {activeTab === 'hot' && (
+                  <div className="space-y-6">
+                    {/* Info Banner */}
+                    <div className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-lg p-4">
+                      <h3 className="font-semibold text-orange-900">Hot Attestation — Immediate On-Chain</h3>
+                      <p className="text-sm text-orange-700 mt-1">
+                        Events with <code className="bg-white px-1.5 py-0.5 rounded text-orange-800 font-mono">hot: true</code> are attested immediately with 1 blockchain TX per event.
+                        Normal events are batched into Merkle trees (~60s+ latency, much lower cost).
+                        Use hot attestation for critical, time-sensitive events where instant proof matters.
+                      </p>
+                    </div>
+
+                    {/* Architecture Diagram */}
+                    <div className="border rounded-lg p-4 bg-gray-50">
+                      <h4 className="font-semibold text-gray-700 mb-3 text-sm">How It Works</h4>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div className="bg-white rounded-lg border border-orange-200 p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs font-bold">🔥</span>
+                            <span className="font-semibold text-sm text-orange-800">Hot Path</span>
+                          </div>
+                          <div className="text-xs text-gray-600 space-y-1 font-mono">
+                            <div>SDK (hot: true)</div>
+                            <div className="text-orange-500">→ Ingestion → Kafka</div>
+                            <div className="text-orange-500">→ Batch Worker detects hot flag</div>
+                            <div className="text-orange-600 font-semibold">→ Immediate attestBatch TX (1 event)</div>
+                            <div>→ DB insert → confirmed</div>
+                          </div>
+                          <div className="mt-2 text-xs text-orange-600 font-semibold">Latency: ~5-15s | Cost: 1 TX per event</div>
+                        </div>
+                        <div className="bg-white rounded-lg border border-blue-200 p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-bold">📦</span>
+                            <span className="font-semibold text-sm text-blue-800">Normal Path</span>
+                          </div>
+                          <div className="text-xs text-gray-600 space-y-1 font-mono">
+                            <div>SDK (hot: false / omitted)</div>
+                            <div className="text-blue-500">→ Ingestion → Kafka</div>
+                            <div className="text-blue-500">→ Batch Worker accumulates events</div>
+                            <div className="text-blue-600 font-semibold">→ attestBatch TX (1000s of events)</div>
+                            <div>→ DB insert → confirmed</div>
+                          </div>
+                          <div className="mt-2 text-xs text-blue-600 font-semibold">Latency: ~60s+ | Cost: 1 TX per batch</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Send Events */}
+                    <div className="border rounded-lg p-4">
+                      <h4 className="font-semibold mb-3">Send Events</h4>
+                      <div className="grid md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">User ID</label>
+                          <input
+                            type="text"
+                            value={hotUserId}
+                            onChange={(e) => setHotUserId(e.target.value)}
+                            placeholder="Auto-generated if empty"
+                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Event Type</label>
+                          <select
+                            value={hotEventType}
+                            onChange={(e) => setHotEventType(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                          >
+                            <option value="critical_transaction">critical_transaction</option>
+                            <option value="high_value_purchase">high_value_purchase</option>
+                            <option value="identity_verification">identity_verification</option>
+                            <option value="contract_signature">contract_signature</option>
+                            <option value="regulatory_event">regulatory_event</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          onClick={sendHotEvent}
+                          disabled={!ingestionClient || hotSending}
+                          className="px-5 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 text-sm font-semibold shadow-sm"
+                        >
+                          {hotSending ? 'Sending...' : '🔥 Send Hot Event'}
+                        </button>
+                        <button
+                          onClick={sendNormalEvent}
+                          disabled={!ingestionClient || hotSending}
+                          className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-semibold shadow-sm"
+                        >
+                          {hotSending ? 'Sending...' : '📦 Send Normal Event'}
+                        </button>
+                        <button
+                          onClick={sendHotBurst}
+                          disabled={!ingestionClient || hotSending}
+                          className="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-blue-500 text-white rounded-lg hover:from-orange-600 hover:to-blue-600 disabled:opacity-50 text-sm font-semibold shadow-sm"
+                        >
+                          {hotSending ? 'Sending...' : '⚡ Burst (3 Hot + 3 Normal)'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* SDK Code Example */}
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="px-4 py-2 bg-gray-800 text-gray-300 text-xs font-mono flex items-center justify-between">
+                        <span>SDK Usage</span>
+                        <span className="text-gray-500">TypeScript</span>
+                      </div>
+                      <pre className="p-4 bg-gray-900 text-gray-100 text-xs overflow-auto font-mono leading-relaxed">{`// Hot attestation — immediate on-chain (1 TX per event)
+await ingestion.ingest({
+  userId: 'user-123',
+  eventType: 'critical_transaction',
+  data: { amount: 50000, currency: 'USD' },
+  hot: true,  // ← This is the only difference
+});
+
+// Normal attestation — batched (~60s+ latency, cheaper)
+await ingestion.ingest({
+  userId: 'user-123',
+  eventType: 'page_view',
+  data: { page: '/dashboard' },
+  // hot defaults to false
+});`}</pre>
+                    </div>
+
+                    {/* Event History */}
+                    {hotResults.length > 0 && (
+                      <div className="border rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="font-semibold">Event History</h4>
+                          <button
+                            onClick={() => setHotResults([])}
+                            className="text-xs text-gray-500 hover:text-gray-700"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                        <div className="space-y-2 max-h-64 overflow-auto">
+                          {hotResults.map((r, i) => (
+                            <div
+                              key={i}
+                              className={`flex items-center gap-3 p-2 rounded text-sm ${
+                                r.hot ? 'bg-orange-50 border border-orange-200' : 'bg-blue-50 border border-blue-200'
+                              }`}
+                            >
+                              <span className="text-lg">{r.hot ? '🔥' : '📦'}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-mono text-xs truncate">{r.eventId}</div>
+                                <div className="text-xs text-gray-500">
+                                  {new Date(r.sentAt).toLocaleTimeString()} — {r.hot ? 'Hot (immediate TX)' : 'Normal (batched)'}
+                                </div>
+                              </div>
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                r.status === 'queued' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
+                              }`}>
+                                {r.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Cost Comparison */}
+                    <div className="border rounded-lg p-4 bg-gradient-to-r from-gray-50 to-gray-100">
+                      <h4 className="font-semibold mb-3">Cost Comparison</h4>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-xs text-gray-500 border-b">
+                              <th className="pb-2 pr-4">Metric</th>
+                              <th className="pb-2 pr-4">🔥 Hot Attestation</th>
+                              <th className="pb-2">📦 Batch Attestation</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-700">
+                            <tr className="border-b border-gray-200">
+                              <td className="py-2 pr-4 font-medium">TX per event</td>
+                              <td className="py-2 pr-4 text-orange-700 font-semibold">1 TX = 1 event</td>
+                              <td className="py-2 text-blue-700">1 TX = 1000s of events</td>
+                            </tr>
+                            <tr className="border-b border-gray-200">
+                              <td className="py-2 pr-4 font-medium">On-chain latency</td>
+                              <td className="py-2 pr-4 text-orange-700 font-semibold">~5-15 seconds</td>
+                              <td className="py-2 text-blue-700">~60-300 seconds</td>
+                            </tr>
+                            <tr className="border-b border-gray-200">
+                              <td className="py-2 pr-4 font-medium">Gas cost</td>
+                              <td className="py-2 pr-4 text-orange-700">~85K gas per event</td>
+                              <td className="py-2 text-blue-700">~85K gas per batch (amortized)</td>
+                            </tr>
+                            <tr>
+                              <td className="py-2 pr-4 font-medium">Use case</td>
+                              <td className="py-2 pr-4 text-orange-700">High-value, regulatory, audit-critical</td>
+                              <td className="py-2 text-blue-700">General events, analytics, engagement</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
                 )}
