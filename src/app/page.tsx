@@ -4424,8 +4424,8 @@ await ingestion.ingest({
                             try {
                               // First look up the user's smart wallet
                               addLog('info', `Looking up smart wallet for user ${credUserId}...`);
-                              const wallets = await tenantSDK.wallets.getUserWallets(credUserId);
-                              const smartWallet = wallets.smart_wallets?.[0];
+                              const wallets = await tenantSDK.wallets.listByUser(credUserId);
+                              const smartWallet = wallets.find((w: any) => w.wallet_type === 'smart');
                               if (!smartWallet) {
                                 addLog('error', `No smart wallet found for user ${credUserId}. Create dual wallets first in the Wallets tab.`);
                                 return;
