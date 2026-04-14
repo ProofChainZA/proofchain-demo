@@ -14,7 +14,7 @@ declare global {
   }
 }
 
-type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'hot' | 'tenant' | 'wallets' | 'quests' | 'pii' | 'leaderboard' | 'ott';
+type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'hot' | 'tenant' | 'wallets' | 'quests' | 'pii' | 'leaderboard' | 'ott' | 'credentials';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SDKInstance = any;
@@ -148,6 +148,16 @@ export default function Home() {
   const [baseUrlRef, setBaseUrlRef] = useState('');
   const [integratorKeyRef, setIntegratorKeyRef] = useState('');
   const [tenantApiKeyRef, setTenantApiKeyRef] = useState('');
+
+  // Credentials demo state
+  const [credUserId, setCredUserId] = useState('');
+  const [credWalletAddress, setCredWalletAddress] = useState('');
+  const [credScore, setCredScore] = useState('75');
+  const [credSchemas, setCredSchemas] = useState<Array<{ id: string; name: string; attestation_type: string }>>([]);
+  const [credSelectedSchema, setCredSelectedSchema] = useState('');
+  const [credLoading, setCredLoading] = useState(false);
+  const [credResults, setCredResults] = useState<any[]>([]);
+  const [credVerifySummary, setCredVerifySummary] = useState<any>(null);
 
   // Hot attestation demo state
   const [hotUserId, setHotUserId] = useState('');
@@ -2196,6 +2206,12 @@ export default function Home() {
                   className={`px-6 py-3 text-sm font-medium ${activeTab === 'ott' ? 'border-b-2 border-teal-500 text-teal-600 bg-teal-50' : 'text-gray-600 hover:text-gray-900'}`}
                 >
                   🔑 OTT Auth
+                </button>
+                <button
+                  onClick={() => setActiveTab('credentials')}
+                  className={`px-6 py-3 text-sm font-medium ${activeTab === 'credentials' ? 'border-b-2 border-violet-500 text-violet-600 bg-violet-50' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  🛡️ Credentials
                 </button>
               </div>
 
@@ -4303,6 +4319,267 @@ await ingestion.ingest({
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {activeTab === 'credentials' && (
+                  <div className="space-y-6">
+                    <div className="bg-violet-50 border border-violet-200 rounded-lg p-4">
+                      <h3 className="font-semibold text-violet-900">Smart Wallet Credentials</h3>
+                      <p className="text-sm text-violet-700 mt-1">
+                        Test the credential attestation system: create an EIP-712 signed attestation issued to a user&apos;s smart wallet,
+                        then look up credentials by wallet address using the public discovery endpoints.
+                      </p>
+                    </div>
+
+                    {/* Step 1: Load Schemas */}
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm bg-violet-100 text-violet-700">1</div>
+                        <h4 className="font-semibold">Load Attestation Schemas</h4>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (!tenantSDK) return;
+                          setCredLoading(true);
+                          try {
+                            const schemas = await tenantSDK.attestations.listSchemas();
+                            setCredSchemas(schemas);
+                            addLog('success', `Loaded ${schemas.length} attestation schemas`, schemas);
+                            setResult(schemas);
+                            if (schemas.length > 0) setCredSelectedSchema(schemas[0].id);
+                          } catch (e: any) {
+                            addLog('error', `Failed to load schemas: ${e.message}`);
+                          } finally {
+                            setCredLoading(false);
+                          }
+                        }}
+                        disabled={!tenantSDK || credLoading}
+                        className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 text-sm font-medium"
+                      >
+                        {credLoading ? 'Loading...' : 'Load Schemas'}
+                      </button>
+                      {credSchemas.length > 0 && (
+                        <div className="mt-3 space-y-1">
+                          {credSchemas.map(s => (
+                            <div key={s.id} className="text-xs bg-white border rounded px-2 py-1">
+                              <span className="font-medium">{s.name}</span>
+                              <span className="text-gray-400 ml-2">{s.attestation_type}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Step 2: Create Attestation */}
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm bg-violet-100 text-violet-700">2</div>
+                        <h4 className="font-semibold">Create Attestation to Smart Wallet</h4>
+                      </div>
+                      <p className="text-xs text-gray-500 mb-3">
+                        Enter a user ID to look up their smart wallet, then issue a signed credential attestation.
+                      </p>
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">User ID</label>
+                          <input
+                            type="text"
+                            value={credUserId}
+                            onChange={(e) => setCredUserId(e.target.value)}
+                            placeholder="e.g. user-123"
+                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Score Value</label>
+                          <input
+                            type="number"
+                            value={credScore}
+                            onChange={(e) => setCredScore(e.target.value)}
+                            placeholder="0-100"
+                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                          />
+                        </div>
+                      </div>
+                      {credSchemas.length > 0 && (
+                        <div className="mb-3">
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Schema</label>
+                          <select
+                            value={credSelectedSchema}
+                            onChange={(e) => setCredSelectedSchema(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                          >
+                            {credSchemas.map(s => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={async () => {
+                            if (!tenantSDK || !credUserId) return;
+                            setCredLoading(true);
+                            try {
+                              // First look up the user's smart wallet
+                              addLog('info', `Looking up smart wallet for user ${credUserId}...`);
+                              const wallets = await tenantSDK.wallets.getUserWallets(credUserId);
+                              const smartWallet = wallets.smart_wallets?.[0];
+                              if (!smartWallet) {
+                                addLog('error', `No smart wallet found for user ${credUserId}. Create dual wallets first in the Wallets tab.`);
+                                return;
+                              }
+                              setCredWalletAddress(smartWallet.address);
+                              addLog('success', `Found smart wallet: ${smartWallet.address}`);
+
+                              // Create attestation
+                              const attestation = await tenantSDK.attestations.create({
+                                schema_id: credSelectedSchema || credSchemas[0]?.id,
+                                subject_address: smartWallet.address,
+                                subject_user_id: credUserId,
+                                data: {
+                                  score: parseFloat(credScore) || 75,
+                                  normalized_score: (parseFloat(credScore) || 75) / 100,
+                                  percentile_rank: Math.random() * 30 + 70,
+                                  cohort_scores: { engagement: Math.round(Math.random() * 40 + 60), loyalty: Math.round(Math.random() * 40 + 60) },
+                                  computed_at: new Date().toISOString(),
+                                },
+                                ref_type: 'composite_score',
+                              });
+                              addLog('success', `Attestation created: ${attestation.uid.slice(0, 20)}...`, attestation);
+                              setResult(attestation);
+                            } catch (e: any) {
+                              addLog('error', `Failed: ${e.message}`);
+                            } finally {
+                              setCredLoading(false);
+                            }
+                          }}
+                          disabled={!tenantSDK || !credUserId || credLoading}
+                          className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 text-sm font-medium"
+                        >
+                          {credLoading ? 'Creating...' : 'Create Attestation'}
+                        </button>
+                      </div>
+                      {credWalletAddress && (
+                        <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded text-sm">
+                          Smart wallet: <code className="text-xs bg-white px-1 rounded">{credWalletAddress}</code>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Step 3: Lookup Credentials */}
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm bg-violet-100 text-violet-700">3</div>
+                        <h4 className="font-semibold">Public Credential Discovery</h4>
+                      </div>
+                      <p className="text-xs text-gray-500 mb-3">
+                        Query the public credential endpoints by wallet address. These endpoints require no authentication — any third party can verify.
+                      </p>
+                      <div className="mb-3">
+                        <label className="text-xs font-medium text-gray-600 block mb-1">Wallet Address</label>
+                        <input
+                          type="text"
+                          value={credWalletAddress}
+                          onChange={(e) => setCredWalletAddress(e.target.value)}
+                          placeholder="0x..."
+                          className="w-full px-3 py-2 border rounded-lg text-sm font-mono"
+                        />
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          onClick={async () => {
+                            if (!tenantSDK || !credWalletAddress) return;
+                            setCredLoading(true);
+                            try {
+                              const creds = await tenantSDK.attestations.getWalletCredentials(credWalletAddress);
+                              setCredResults(creds);
+                              addLog('success', `Found ${creds.length} credentials for wallet`, creds);
+                              setResult(creds);
+                            } catch (e: any) {
+                              addLog('error', `Lookup failed: ${e.message}`);
+                            } finally {
+                              setCredLoading(false);
+                            }
+                          }}
+                          disabled={!tenantSDK || !credWalletAddress || credLoading}
+                          className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 text-sm font-medium"
+                        >
+                          List Credentials
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!tenantSDK || !credWalletAddress) return;
+                            setCredLoading(true);
+                            try {
+                              const summary = await tenantSDK.attestations.verifyWalletCredentials(credWalletAddress);
+                              setCredVerifySummary(summary);
+                              addLog('success', `Verification summary for wallet`, summary);
+                              setResult(summary);
+                            } catch (e: any) {
+                              addLog('error', `Verify failed: ${e.message}`);
+                            } finally {
+                              setCredLoading(false);
+                            }
+                          }}
+                          disabled={!tenantSDK || !credWalletAddress || credLoading}
+                          className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm font-medium"
+                        >
+                          Verify Summary
+                        </button>
+                      </div>
+
+                      {/* Credential Results */}
+                      {credResults.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                          <h5 className="text-sm font-medium">Credentials Found: {credResults.length}</h5>
+                          {credResults.map((cred: any, i: number) => (
+                            <div key={i} className="p-3 bg-white border rounded-lg text-xs">
+                              <div className="flex justify-between items-start mb-1">
+                                <span className="font-medium text-violet-700">{cred.attestation_type || 'attestation'}</span>
+                                <span className={`px-2 py-0.5 rounded-full text-xs ${cred.status === 'signed' ? 'bg-blue-100 text-blue-700' : cred.status === 'anchored' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                                  {cred.status}
+                                </span>
+                              </div>
+                              <div className="text-gray-500 space-y-0.5">
+                                <div>Issuer: {cred.issuer_name || 'Unknown'}</div>
+                                <div>Score: <span className="font-mono font-medium text-gray-900">{cred.data?.score}</span></div>
+                                <div>Signed: {cred.signature_type || 'none'} {cred.signature ? '✓' : '✗'}</div>
+                                <div className="font-mono text-gray-400 truncate">UID: {cred.uid}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Verify Summary */}
+                      {credVerifySummary && (
+                        <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                          <h5 className="text-sm font-medium text-emerald-900 mb-2">Verification Summary</h5>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div>Total: <span className="font-bold">{credVerifySummary.total_credentials}</span></div>
+                            <div>Verified: <span className="font-bold">{credVerifySummary.is_verified ? 'Yes' : 'No'}</span></div>
+                          </div>
+                          {Object.keys(credVerifySummary.credential_types || {}).length > 0 && (
+                            <div className="mt-2 text-xs">
+                              <div className="font-medium">Types:</div>
+                              {Object.entries(credVerifySummary.credential_types).map(([type, count]: [string, any]) => (
+                                <div key={type} className="ml-2">{type}: {count}</div>
+                              ))}
+                            </div>
+                          )}
+                          {Object.keys(credVerifySummary.latest_scores || {}).length > 0 && (
+                            <div className="mt-2 text-xs">
+                              <div className="font-medium">Latest Scores:</div>
+                              {Object.entries(credVerifySummary.latest_scores).map(([key, val]: [string, any]) => (
+                                <div key={key} className="ml-2">Score: {(val as any)?.score} (percentile: {(val as any)?.percentile_rank?.toFixed(1)})</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
