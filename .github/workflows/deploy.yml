@@ -56,9 +56,8 @@ jobs:
       - name: Build and push image
         run: |
           IMAGE_TAG=${{ github.sha }}
-          docker build -t $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG -t $ECR_REGISTRY/$IMAGE_NAME:latest .
+          docker build -t $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$IMAGE_NAME:latest
 
       - name: Set up kubeconfig
         env:
