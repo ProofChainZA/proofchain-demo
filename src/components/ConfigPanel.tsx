@@ -14,10 +14,10 @@ interface ConfigPanelProps {
 }
 
 export default function ConfigPanel({ onInitialize, isConnected }: ConfigPanelProps) {
-  const baseUrl = 'https://api.proofchain.co.za';
-  const [integratorKey, setIntegratorKey] = useState('ik_live_Xto1e3ZIuolnr65M8D3sq5a_Qufq51XQehmHKphj0sI');
-  const [campaignId, setCampaignId] = useState('b601323a-245d-45df-9008-3ad828038f3e');
-  const [tenantApiKey, setTenantApiKey] = useState('att_watt_yyqHNUS6jRAhkqmEExSol_uPHTBDNTzB_GiOFaQTLAU');
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.proofchain.co.za';
+  const [integratorKey, setIntegratorKey] = useState('');
+  const [campaignId, setCampaignId] = useState('');
+  const [tenantApiKey, setTenantApiKey] = useState('');
 
   const handleInitialize = async () => {
     let integratorId: string | undefined;
