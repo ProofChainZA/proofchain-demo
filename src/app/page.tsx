@@ -3,6 +3,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import ConfigPanel from '@/components/ConfigPanel';
 import LogPanel, { LogEntry } from '@/components/LogPanel';
+import WalletSdkDemo from '@/components/WalletSdkDemo';
+import WalletDemo from '@/components/WalletDemo';
 
 // Extend Window interface for MetaMask
 declare global {
@@ -14,7 +16,7 @@ declare global {
   }
 }
 
-type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'hot' | 'tenant' | 'wallets' | 'quests' | 'pii' | 'leaderboard' | 'ott' | 'credentials';
+type TabName = 'flow' | 'consent' | 'dataviews' | 'feedback' | 'passports' | 'ownership' | 'events' | 'hot' | 'tenant' | 'wallets' | 'quests' | 'pii' | 'leaderboard' | 'ott' | 'credentials' | 'walletsdk' | 'wallet';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SDKInstance = any;
@@ -2212,6 +2214,18 @@ export default function Home() {
                   className={`px-6 py-3 text-sm font-medium ${activeTab === 'credentials' ? 'border-b-2 border-violet-500 text-violet-600 bg-violet-50' : 'text-gray-600 hover:text-gray-900'}`}
                 >
                   🛡️ Credentials
+                </button>
+                <button
+                  onClick={() => setActiveTab('wallet')}
+                  className={`px-6 py-3 text-sm font-medium ${activeTab === 'wallet' ? 'border-b-2 border-purple-500 text-purple-600 bg-purple-50' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  💼 Wallet
+                </button>
+                <button
+                  onClick={() => setActiveTab('walletsdk')}
+                  className={`px-6 py-3 text-sm font-medium ${activeTab === 'walletsdk' ? 'border-b-2 border-sky-500 text-sky-600 bg-sky-50' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  🔐 Wallet SDK Reference
                 </button>
               </div>
 
@@ -4581,6 +4595,14 @@ await ingestion.ingest({
                       )}
                     </div>
                   </div>
+                )}
+
+                {activeTab === 'wallet' && (
+                  <WalletDemo />
+                )}
+
+                {activeTab === 'walletsdk' && (
+                  <WalletSdkDemo />
                 )}
 
                 {/* User Attributes Management for Testing Filters */}
