@@ -22,6 +22,7 @@ import {
   useSignInWithOAuth,
   useVerifyEmailOTP,
   useSignOut,
+  useWalletContext,
 } from "@proofchain/wallet-sdk";
 import "@proofchain/wallet-sdk/styles.css";
 
@@ -485,7 +486,52 @@ function Dashboard() {
 // Status router — switches on useWalletProvisioning().status
 // ──────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Outer guard — checks that the ProofChain wallet provider has resolved
+ * `cdpProjectId` before mounting any component that uses CDP hooks.
+ *
+ * This mirrors the outer/inner split in <WalletProvision />: until
+ * `cdpProjectId` is non-null, `ProofChainWalletProvider` has NOT mounted
+ * `CDPReactProvider`, so calling any `@coinbase/cdp-hooks` hook (which
+ * `useWalletProvisioning` does internally) throws "useCDP must be used
+ * within a CDPHooksProvider". Render an inert placeholder until CDP is
+ * guaranteed in the tree.
+ */
 function WalletShell() {
+  const { cdpProjectId, loading: cfgLoading, error: cfgError } = useWalletContext();
+
+  if (cfgLoading) {
+    return (
+      <div className="max-w-md mx-auto text-center py-20">
+        <div className="animate-pulse text-gray-400">Loading wallet config…</div>
+      </div>
+    );
+  }
+
+  if (cfgError) {
+    return (
+      <div className="max-w-md mx-auto text-center py-20">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 mb-4 text-3xl">⚠️</div>
+        <h3 className="text-lg font-semibold text-gray-900">Couldn&apos;t reach wallet API</h3>
+        <p className="text-sm text-red-600 mt-1">{cfgError}</p>
+      </div>
+    );
+  }
+
+  if (!cdpProjectId) {
+    return (
+      <div className="max-w-md mx-auto text-center py-20">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-amber-100 mb-4 text-3xl">⚙️</div>
+        <h3 className="text-lg font-semibold text-gray-900">Embedded wallets not enabled</h3>
+        <p className="text-sm text-gray-600 mt-1">This tenant doesn&apos;t have a CDP project configured.</p>
+      </div>
+    );
+  }
+
+  return <WalletShellInner />;
+}
+
+function WalletShellInner() {
   const { status, error, link } = useWalletProvisioning();
 
   if (status === "initializing") {
