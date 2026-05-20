@@ -58,7 +58,7 @@ export default function Home() {
   // Feedback state
   const [feedbackUserId, setFeedbackUserId] = useState('');
   const [feedbackType, setFeedbackType] = useState('');
-  const [feedbackTypes, setFeedbackTypes] = useState<Array<{ type: string; name: string }>>([]);
+  const [feedbackTypes, setFeedbackTypes] = useState<Array<{ type: string; name: string; description?: string; schema?: { properties: Record<string, { type: string; description?: string; enum?: string[]; minimum?: number; maximum?: number }>; required: string[] } }>>([]);
   const [feedbackData, setFeedbackData] = useState<Record<string, unknown>>({});
 
   // Passport state
@@ -1500,7 +1500,8 @@ export default function Home() {
     addLog('request', 'partnerSDK.getFeedbackTypes()');
     try {
       const types = await partnerSDK.getFeedbackTypes();
-      setFeedbackTypes(types.map((t: { type: string; name: string }) => ({ type: t.type, name: t.name })));
+      // Keep the full schema — the Feedback tab renders dynamic inputs from it
+      setFeedbackTypes(types);
       addLog('success', `✅ Found ${types.length} feedback types`, types);
       setResult(types);
     } catch (error) {
@@ -1515,27 +1516,14 @@ export default function Home() {
       return;
     }
 
-    // Generate sample feedback data based on type
-    const sampleData: Record<string, unknown> = {};
-    if (feedbackType === 'purchase') {
-      sampleData.amount = Math.floor(Math.random() * 200) + 10;
-      sampleData.currency = 'USD';
-      sampleData.product_id = `product_${Math.floor(Math.random() * 1000)}`;
-    } else if (feedbackType === 'discount_applied') {
-      const discountPercent = Math.floor(Math.random() * 30) + 5;
-      const originalAmount = Math.floor(Math.random() * 200) + 50;
-      sampleData.discount_code = `SAVE${Math.floor(Math.random() * 100)}`;
-      sampleData.discount_percent = discountPercent;
-      sampleData.original_amount = originalAmount;
-      sampleData.final_amount = originalAmount * (1 - discountPercent / 100);
-    } else {
-      sampleData.action = feedbackType;
-      sampleData.timestamp = new Date().toISOString();
-    }
+    // Build payload from whatever the user filled into feedbackData. If they
+    // didn't fill anything, send {} and let the server's schema validator
+    // tell us what was required (great way to demo the new 422 path).
+    const payload = { ...feedbackData };
 
-    addLog('request', `partnerSDK.submitFeedback('${feedbackUserId}', '${feedbackType}', ...)`, sampleData);
+    addLog('request', `partnerSDK.submitFeedback('${feedbackUserId}', '${feedbackType}', ...)`, payload);
     try {
-      const result = await partnerSDK.submitFeedback(feedbackUserId, feedbackType, sampleData);
+      const result = await partnerSDK.submitFeedback(feedbackUserId, feedbackType, payload);
       addLog('success', '✅ Feedback submitted', result);
       setResult(result);
       setStats(prev => ({ ...prev, feedback: prev.feedback + 1 }));
@@ -2798,37 +2786,136 @@ export default function Home() {
                 )}
 
                 {/* Feedback Tab */}
-                {activeTab === 'feedback' && (
-                  <div className="space-y-4">
-                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                      <h3 className="font-semibold text-orange-900">Partner Feedback</h3>
-                      <p className="text-sm text-orange-700 mt-1">
-                        Uses <code className="bg-white px-1 rounded">partnerSDK.submitFeedback()</code> and <code className="bg-white px-1 rounded">partnerSDK.getFeedbackTypes()</code>
-                      </p>
-                    </div>
-                    <div className="grid md:grid-cols-3 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">User ID</label>
-                        <input type="text" value={feedbackUserId} onChange={(e) => setFeedbackUserId(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                {activeTab === 'feedback' && (() => {
+                  const selectedType = feedbackTypes.find(t => t.type === feedbackType);
+                  const schema = selectedType?.schema;
+                  return (
+                    <div className="space-y-4">
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                        <h3 className="font-semibold text-orange-900">Partner Feedback</h3>
+                        <p className="text-sm text-orange-700 mt-1">
+                          Uses <code className="bg-white px-1 rounded">partnerSDK.getFeedbackTypes()</code> to fetch the
+                          campaign-defined event types + schemas, then renders inputs dynamically. Submit calls{' '}
+                          <code className="bg-white px-1 rounded">partnerSDK.submitFeedback()</code> — both the SDK and
+                          the server validate against the schema; mismatches return 422 with per-field errors.
+                        </p>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Feedback Type</label>
-                        <select value={feedbackType} onChange={(e) => setFeedbackType(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm">
-                          <option value="">Select type...</option>
-                          {feedbackTypes.map(t => <option key={t.type} value={t.type}>{t.name}</option>)}
-                        </select>
+
+                      <div className="grid md:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">User ID</label>
+                          <input type="text" value={feedbackUserId} onChange={(e) => setFeedbackUserId(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Feedback Type</label>
+                          <select
+                            value={feedbackType}
+                            onChange={(e) => { setFeedbackType(e.target.value); setFeedbackData({}); }}
+                            className="w-full px-3 py-2 border rounded-lg text-sm"
+                          >
+                            <option value="">Select type...</option>
+                            {feedbackTypes.map(t => <option key={t.type} value={t.type}>{t.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="flex items-end">
+                          <button onClick={loadFeedbackTypes} disabled={!partnerSDK} className="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 disabled:opacity-50 text-sm font-medium">
+                            Reload Types
+                          </button>
+                        </div>
                       </div>
+
+                      {/* Dynamic payload editor — driven by the selected event type's schema */}
+                      {selectedType && schema && Object.keys(schema.properties || {}).length > 0 && (
+                        <div className="border rounded-lg p-4 bg-gray-50">
+                          <div className="text-sm font-medium text-gray-700 mb-3">
+                            Event payload
+                            {selectedType.description && <span className="text-gray-500 font-normal ml-2">— {selectedType.description}</span>}
+                          </div>
+                          <div className="grid md:grid-cols-2 gap-3">
+                            {Object.entries(schema.properties).map(([fieldName, fieldSchema]) => {
+                              const isRequired = (schema.required || []).includes(fieldName);
+                              const value = feedbackData[fieldName];
+                              const onChange = (raw: string) => {
+                                let next: unknown = raw;
+                                if (fieldSchema.type === 'number') next = raw === '' ? undefined : Number(raw);
+                                if (fieldSchema.type === 'boolean') next = raw === 'true';
+                                setFeedbackData(prev => ({ ...prev, [fieldName]: next }));
+                              };
+                              return (
+                                <label key={fieldName} className="block">
+                                  <span className="text-xs font-medium text-gray-700 flex items-center gap-1">
+                                    <code>{fieldName}</code>
+                                    {isRequired && <span className="text-red-500">*</span>}
+                                    <span className="text-gray-400 font-normal">({fieldSchema.type})</span>
+                                  </span>
+                                  {fieldSchema.description && <span className="block text-[11px] text-gray-500 mb-1">{fieldSchema.description}</span>}
+                                  {fieldSchema.enum ? (
+                                    <select
+                                      value={(value as string) ?? ''}
+                                      onChange={(e) => onChange(e.target.value)}
+                                      className="w-full px-3 py-1.5 border rounded text-sm"
+                                    >
+                                      <option value="">—</option>
+                                      {fieldSchema.enum.map((v: string) => <option key={v} value={v}>{v}</option>)}
+                                    </select>
+                                  ) : fieldSchema.type === 'boolean' ? (
+                                    <select
+                                      value={value === undefined ? '' : String(value)}
+                                      onChange={(e) => onChange(e.target.value)}
+                                      className="w-full px-3 py-1.5 border rounded text-sm"
+                                    >
+                                      <option value="">—</option>
+                                      <option value="true">true</option>
+                                      <option value="false">false</option>
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type={fieldSchema.type === 'number' ? 'number' : 'text'}
+                                      value={(value as string | number | undefined) ?? ''}
+                                      onChange={(e) => onChange(e.target.value)}
+                                      min={fieldSchema.minimum}
+                                      max={fieldSchema.maximum}
+                                      className="w-full px-3 py-1.5 border rounded text-sm"
+                                    />
+                                  )}
+                                  {fieldSchema.type === 'number' && (fieldSchema.minimum !== undefined || fieldSchema.maximum !== undefined) && (
+                                    <span className="text-[10px] text-gray-400">
+                                      {fieldSchema.minimum !== undefined && `min: ${fieldSchema.minimum} `}
+                                      {fieldSchema.maximum !== undefined && `max: ${fieldSchema.maximum}`}
+                                    </span>
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedType && (!schema || Object.keys(schema.properties || {}).length === 0) && (
+                        <div className="border border-dashed rounded-lg p-4 text-sm text-gray-500 italic">
+                          This event type has no schema fields — the payload will be sent as <code>{'{}'}</code>.
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={submitFeedback} disabled={!partnerSDK || !feedbackUserId || !feedbackType} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 text-sm font-medium">
+                          Submit Feedback
+                        </button>
+                        {Object.keys(feedbackData).length > 0 && (
+                          <button onClick={() => setFeedbackData({})} className="px-4 py-2 bg-white border text-gray-600 rounded-lg hover:bg-gray-50 text-sm">
+                            Clear payload
+                          </button>
+                        )}
+                      </div>
+
+                      {feedbackTypes.length === 0 && (
+                        <div className="text-xs text-gray-500 italic">
+                          No event types loaded yet — click <strong>Reload Types</strong> to fetch the campaign&apos;s configured feedback schema.
+                        </div>
+                      )}
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button onClick={loadFeedbackTypes} disabled={!partnerSDK} className="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 disabled:opacity-50 text-sm font-medium">
-                        Load Feedback Types
-                      </button>
-                      <button onClick={submitFeedback} disabled={!partnerSDK || !feedbackUserId || !feedbackType} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 text-sm font-medium">
-                        Submit Feedback
-                      </button>
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Events Tab */}
                 {activeTab === 'events' && (
