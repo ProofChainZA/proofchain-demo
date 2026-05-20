@@ -51,6 +51,9 @@ function CredentialsGate({ onSubmit }: { onSubmit: (creds: Credentials) => void 
     if (typeof window !== "undefined") {
       window.localStorage.setItem("pcw_apiBaseUrl", apiBaseUrl);
       window.localStorage.setItem("pcw_tenantSlug", tenantSlug);
+      // Persist JWT in sessionStorage so the CDP OAuth redirect (which remounts
+      // the React tree) doesn't drop it. Cleared when the tab closes.
+      window.sessionStorage.setItem("pcw_demo_jwt", jwt);
     }
     onSubmit({ apiBaseUrl, tenantSlug, jwt });
   };
@@ -552,7 +555,25 @@ function WalletShell() {
 // ──────────────────────────────────────────────────────────────────────────────
 
 export default function WalletDemo() {
-  const [creds, setCreds] = useState<Credentials | null>(null);
+  // Restore creds from storage on mount so the CDP OAuth redirect doesn't
+  // strand us on the CredentialsGate. apiBaseUrl + tenantSlug live in
+  // localStorage; the JWT lives in sessionStorage (tab-scoped) so it survives
+  // the redirect but doesn't leak across tabs.
+  const [creds, setCreds] = useState<Credentials | null>(() => {
+    if (typeof window === "undefined") return null;
+    const apiBaseUrl = window.localStorage.getItem("pcw_apiBaseUrl");
+    const tenantSlug = window.localStorage.getItem("pcw_tenantSlug");
+    const jwt = window.sessionStorage.getItem("pcw_demo_jwt");
+    if (!apiBaseUrl || !tenantSlug || !jwt) return null;
+    return { apiBaseUrl, tenantSlug, jwt };
+  });
+
+  const clearCreds = () => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem("pcw_demo_jwt");
+    }
+    setCreds(null);
+  };
 
   const getAuthToken = useMemo(() => {
     if (!creds) return () => "";
@@ -576,7 +597,7 @@ export default function WalletDemo() {
           {creds.apiBaseUrl}
         </div>
         <button
-          onClick={() => setCreds(null)}
+          onClick={clearCreds}
           className="text-xs text-gray-500 hover:text-gray-700 underline-offset-2 hover:underline"
         >
           Change credentials
