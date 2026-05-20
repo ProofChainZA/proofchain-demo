@@ -3,8 +3,8 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy package files (incl. .npmrc so CDP's tight react peer range is bypassed)
+COPY package*.json .npmrc ./
 
 # Install dependencies
 RUN npm ci
