@@ -2,7 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -40,7 +40,9 @@ jobs:
   build-and-deploy:
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')
+    env:
+      FLOATING_TAG: ${{ github.ref == 'refs/heads/staging' && 'staging' || 'latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,9 +58,9 @@ jobs:
       - name: Build and push image
         run: |
           IMAGE_TAG=${{ github.sha }}
-          docker build -t $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG -t $ECR_REGISTRY/$IMAGE_NAME:latest .
+          docker build -t $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG -t $ECR_REGISTRY/$IMAGE_NAME:$FLOATING_TAG .
           docker push $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$IMAGE_NAME:latest
+          docker push $ECR_REGISTRY/$IMAGE_NAME:$FLOATING_TAG
 
       - name: Join Tailscale
         uses: tailscale/github-action@v2
@@ -69,12 +71,19 @@ jobs:
 
       - name: Set up kubeconfig (rewrite server URL to Tailscale IP)
         env:
-          K3S_KUBECONFIG: ${{ secrets.K3S_KUBECONFIG }}
+          PROD_KUBECONFIG: ${{ secrets.K3S_KUBECONFIG }}
+          STAGING_KUBECONFIG: ${{ secrets.STAGING_K3S_KUBECONFIG }}
         run: |
           mkdir -p ~/.kube
-          printenv K3S_KUBECONFIG \
-            | sed 's|https://57\.129\.83\.241:6443|https://100.78.121.31:6443|' \
-            > ~/.kube/config
+          if [ "${{ github.ref_name }}" = "staging" ]; then
+            printenv STAGING_KUBECONFIG \
+              | sed 's|https://127\.0\.0\.1:6443|https://100.97.162.90:6443|' \
+              > ~/.kube/config
+          else
+            printenv PROD_KUBECONFIG \
+              | sed 's|https://57\.129\.83\.241:6443|https://100.78.121.31:6443|' \
+              > ~/.kube/config
+          fi
           chmod 600 ~/.kube/config
 
       - name: Deploy to k3s
