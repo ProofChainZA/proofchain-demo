@@ -5,13 +5,12 @@
  *
  * Single-screen form for credentials, then renders every public SDK feature:
  *   • Discovery   — GET /tenants/{slug}/wallet-config
- *   • Provision   — <WalletProvision /> (CDP sign-in + auto-link)
- *   • Display     — <WalletDisplay />
+ *   • Auth state  — useIsInitialized / useIsSignedIn / useCurrentUser / useEvmAddress
+ *   • Custom UI   — headless Google / Apple / Email-OTP buttons built from CDP hooks
+ *   • Provision   — <WalletProvision /> (CDP AuthButton + auto-link)
+ *   • Display     — <WalletDisplay /> (asset + identity wallets)
  *   • Hooks       — useUserWallet / useExportKey
  *   • Inspector   — live JSON of every API request/response
- *
- * Originally lived at /wallet-sdk as its own page. Folded into the main demo
- * so CDP sees a single allow-listed HTTPS origin.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -23,6 +22,14 @@ import {
   useUserWallet,
   useExportKey,
   useWalletContext,
+  useIsInitialized,
+  useIsSignedIn,
+  useCurrentUser,
+  useEvmAddress,
+  useSignInWithEmail,
+  useVerifyEmailOTP,
+  useSignInWithOAuth,
+  useSignOut,
 } from "@proofchain/wallet-sdk";
 import "@proofchain/wallet-sdk/styles.css";
 
@@ -42,11 +49,11 @@ function CredentialsForm({
   onSubmit: (creds: Credentials) => void;
 }) {
   const [apiBaseUrl, setApiBaseUrl] = useState(
-    typeof window !== "undefined" && window.localStorage.getItem("pcw_apiBaseUrl") ||
+    (typeof window !== "undefined" && window.localStorage.getItem("pcw_apiBaseUrl")) ||
       "https://app.proofchain.co.za/api",
   );
   const [tenantSlug, setTenantSlug] = useState(
-    typeof window !== "undefined" && window.localStorage.getItem("pcw_tenantSlug") ||
+    (typeof window !== "undefined" && window.localStorage.getItem("pcw_tenantSlug")) ||
       "",
   );
   const [jwt, setJwt] = useState("");
@@ -58,7 +65,6 @@ function CredentialsForm({
     if (typeof window !== "undefined") {
       window.localStorage.setItem("pcw_apiBaseUrl", apiBaseUrl);
       window.localStorage.setItem("pcw_tenantSlug", tenantSlug);
-      // intentionally do not persist the JWT
     }
     onSubmit({ apiBaseUrl, tenantSlug, jwt });
   };
@@ -80,8 +86,9 @@ function CredentialsForm({
         <h2 style={{ margin: 0, fontSize: 20 }}>Wallet SDK — Demo Credentials</h2>
         <p style={{ color: "#6b7280", marginTop: 4, fontSize: 14 }}>
           Provide the ProofChain API base URL, your tenant slug, and a valid end-user JWT
-          signed by your registered JWKS endpoint. Nothing is sent off-device until you
-          submit.
+          signed by your registered JWKS endpoint. The JWT authorises ProofChain API calls
+          — the actual <strong>end-user identity</strong> (Google / Apple / Email) is then
+          chosen via CDP in the next screen.
         </p>
       </div>
 
@@ -190,12 +197,12 @@ function useInspector() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Sections rendered inside the provider
+// 1. Discovery
 // ──────────────────────────────────────────────────────────────────────────────
 
 function DiscoverySection({ apiBaseUrl, tenantSlug }: { apiBaseUrl: string; tenantSlug: string }) {
   const { log } = useInspector();
-  const [data, setData] = useState<unknown>(null);
+  const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fetchConfig = async () => {
@@ -217,21 +224,45 @@ function DiscoverySection({ apiBaseUrl, tenantSlug }: { apiBaseUrl: string; tena
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiBaseUrl, tenantSlug]);
 
+  const ready =
+    data &&
+    data.embedded_wallets_enabled === true &&
+    typeof data.cdp_project_id === "string" &&
+    data.cdp_project_id.length > 0;
+
   return (
-    <Card title="1. Discovery — GET /tenants/{slug}/wallet-config" subtitle="Public endpoint. Returns CDP project ID, supported networks, OAuth providers, and the embedded-wallets feature flag.">
-      <button onClick={fetchConfig} style={secondaryBtn}>
-        Re-fetch
-      </button>
+    <Card
+      title="1. Discovery — GET /tenants/{slug}/wallet-config"
+      subtitle="Public, unauthenticated endpoint. Returns CDP project ID, supported networks, OAuth providers, and the embedded-wallets feature flag. If embedded_wallets_enabled is false or cdp_project_id is null, no login UI will render below."
+    >
+      <button onClick={fetchConfig} style={secondaryBtn}>Re-fetch</button>
       {error && <pre style={errorBlock}>{error}</pre>}
+      {data && (
+        <div style={{ display: "flex", gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
+          <Pill ok={data.embedded_wallets_enabled}>
+            embedded_wallets_enabled = {String(data.embedded_wallets_enabled)}
+          </Pill>
+          <Pill ok={ready}>
+            cdp_project_id = {data.cdp_project_id ? "set" : "null"}
+          </Pill>
+          <Pill ok={Array.isArray(data.oauth_providers) && data.oauth_providers.length > 0}>
+            oauth: {(data.oauth_providers ?? []).join(", ") || "—"}
+          </Pill>
+        </div>
+      )}
       {data ? <pre style={codeBlock}>{JSON.stringify(data, null, 2)}</pre> : <p style={{ color: "#6b7280" }}>Loading…</p>}
     </Card>
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// 2. Provider state
+// ──────────────────────────────────────────────────────────────────────────────
+
 function ContextSection() {
   const ctx = useWalletContext();
   return (
-    <Card title="2. Provider state — useWalletContext()" subtitle="What the SDK provider exposes once mounted.">
+    <Card title="2. Provider state — useWalletContext()" subtitle="Internal SDK state. If cdpProjectId is null and loading=false, CDP is NOT mounted and the auth UI below will be inert.">
       <pre style={codeBlock}>
 {JSON.stringify(
   {
@@ -253,9 +284,185 @@ function ContextSection() {
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// 3. Auth state — visibility into CDP
+// ──────────────────────────────────────────────────────────────────────────────
+
+function AuthStateSection() {
+  const { isInitialized } = useIsInitialized();
+  const { isSignedIn } = useIsSignedIn();
+  const { currentUser } = useCurrentUser();
+  const { evmAddress } = useEvmAddress();
+  const { signOut } = useSignOut();
+  const { log } = useInspector();
+
+  const doSignOut = async () => {
+    await signOut();
+    log("useSignOut()", { signedOut: true });
+  };
+
+  return (
+    <Card
+      title="3. CDP auth state — useIsInitialized / useIsSignedIn / useCurrentUser / useEvmAddress"
+      subtitle="Live status of the CDP session. If isSignedIn=true on first load, your browser had a cached session (this is the 'just a JWT created a wallet' mystery). Sign out to reproduce a clean login."
+    >
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <Pill ok={isInitialized}>isInitialized = {String(isInitialized)}</Pill>
+        <Pill ok={isSignedIn}>isSignedIn = {String(isSignedIn)}</Pill>
+        <Pill ok={!!evmAddress}>evmAddress = {evmAddress ? `${evmAddress.slice(0, 8)}…` : "—"}</Pill>
+      </div>
+      <pre style={codeBlock}>
+{JSON.stringify({ currentUser, evmAddress }, null, 2)}
+      </pre>
+      {isSignedIn && (
+        <button onClick={doSignOut} style={dangerBtn}>
+          Sign out (clear CDP session)
+        </button>
+      )}
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 4. Custom headless login UI — built from raw hooks (this is what FanPass needs)
+// ──────────────────────────────────────────────────────────────────────────────
+
+function CustomLoginSection() {
+  const { isSignedIn } = useIsSignedIn();
+  const { signInWithOAuth } = useSignInWithOAuth();
+  const { signInWithEmail } = useSignInWithEmail();
+  const { verifyEmailOTP } = useVerifyEmailOTP();
+  const { log } = useInspector();
+
+  const [email, setEmail] = useState("");
+  const [flowId, setFlowId] = useState<string | null>(null);
+  const [otp, setOtp] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const oauth = async (provider: "google" | "apple") => {
+    setErr(null);
+    setBusy(provider);
+    try {
+      await signInWithOAuth(provider);
+      log(`useSignInWithOAuth("${provider}")`, { status: "redirect-or-popup-initiated" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(msg);
+      log(`signInWithOAuth(${provider}) FAILED`, msg);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const sendCode = async () => {
+    setErr(null);
+    setBusy("email");
+    try {
+      const res = await signInWithEmail({ email });
+      setFlowId(res.flowId);
+      log("useSignInWithEmail()", { flowId: res.flowId });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(msg);
+      log("signInWithEmail FAILED", msg);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const verify = async () => {
+    if (!flowId) return;
+    setErr(null);
+    setBusy("verify");
+    try {
+      const res = await verifyEmailOTP({ flowId, otp });
+      log("useVerifyEmailOTP()", res);
+      setFlowId(null);
+      setOtp("");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(msg);
+      log("verifyEmailOTP FAILED", msg);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card
+      title="4. Custom login UI — built from headless hooks (FanPass pattern)"
+      subtitle="This is exactly what your frontend will look like. No CDP-branded buttons. You own every pixel. Hooks: useSignInWithOAuth, useSignInWithEmail + useVerifyEmailOTP."
+    >
+      {isSignedIn ? (
+        <p style={{ color: "#065f46", background: "#d1fae5", padding: 12, borderRadius: 6, margin: 0 }}>
+          ✓ Already signed in. Sign out above to test the login UI from scratch.
+        </p>
+      ) : (
+        <div style={{ display: "grid", gap: 16 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button onClick={() => oauth("google")} disabled={!!busy} style={oauthBtn}>
+              {busy === "google" ? "Opening Google…" : "Continue with Google"}
+            </button>
+            <button onClick={() => oauth("apple")} disabled={!!busy} style={oauthBtn}>
+              {busy === "apple" ? "Opening Apple…" : "Continue with Apple"}
+            </button>
+          </div>
+
+          <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+            <p style={{ margin: "0 0 8px 0", fontSize: 13, color: "#6b7280" }}>
+              Or sign in with email (OTP):
+            </p>
+            {!flowId ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  style={{ ...inputStyle, flex: 1 }}
+                />
+                <button onClick={sendCode} disabled={!email || !!busy} style={primaryBtn}>
+                  {busy === "email" ? "Sending…" : "Send code"}
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  placeholder="6-digit code"
+                  style={{ ...inputStyle, flex: 1 }}
+                />
+                <button onClick={verify} disabled={!otp || !!busy} style={primaryBtn}>
+                  {busy === "verify" ? "Verifying…" : "Verify"}
+                </button>
+                <button onClick={() => { setFlowId(null); setOtp(""); }} style={ghostBtn}>
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+
+          {err && <pre style={errorBlock}>{err}</pre>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 5. Built-in <WalletProvision /> (CDP's own AuthButton)
+// ──────────────────────────────────────────────────────────────────────────────
+
 function ProvisionSection() {
   return (
-    <Card title="3. Provision — <WalletProvision />" subtitle="Renders the CDP sign-in CTA. On sign-in, the SDK auto-calls POST /wallets/me/cdp-link to associate the resulting EOA + Smart Account pair with this end-user.">
+    <Card
+      title="5. Provision — <WalletProvision /> (built-in CDP AuthButton)"
+      subtitle="The drop-in component. Renders CDP's AuthButton (which opens a modal with Google / Apple / Email). On sign-in, the SDK auto-calls POST /wallets/me/cdp-link."
+    >
       <div style={{ border: "1px dashed #d1d5db", borderRadius: 8, padding: 16, background: "#f9fafb" }}>
         <WalletProvision />
       </div>
@@ -263,15 +470,54 @@ function ProvisionSection() {
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// 6. Display — both asset + identity wallets
+// ──────────────────────────────────────────────────────────────────────────────
+
 function DisplaySection() {
+  const { data } = useUserWallet();
+  const signing = data?.wallets?.find((w: any) => w.role === "signing");
+  const identity = data?.wallets?.find((w: any) => w.role === "identity");
+
   return (
-    <Card title="4. Display — <WalletDisplay />" subtitle="Shows the active delivery address (Smart Account), the underlying signing wallet (EOA), and an Export Key button (browser-side only).">
+    <Card
+      title="6. Display — <WalletDisplay /> + dual-wallet breakdown"
+      subtitle="The SDK provisions TWO wallets per user: an EOA (signing / asset wallet) and a Smart Account (identity / delivery address)."
+    >
+      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr", marginBottom: 16 }}>
+        <WalletCard label="Asset wallet (EOA — signing)" wallet={signing} />
+        <WalletCard label="Identity wallet (Smart Account)" wallet={identity} />
+      </div>
       <div style={{ border: "1px dashed #d1d5db", borderRadius: 8, padding: 16, background: "#f9fafb" }}>
         <WalletDisplay />
       </div>
     </Card>
   );
 }
+
+function WalletCard({ label, wallet }: { label: string; wallet: any }) {
+  return (
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 12, background: "#fff" }}>
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>{label}</div>
+      {wallet ? (
+        <>
+          <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, wordBreak: "break-all" }}>
+            {wallet.address}
+          </div>
+          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>
+            type: {wallet.wallet_type} · role: {wallet.role ?? "—"}
+          </div>
+        </>
+      ) : (
+        <div style={{ color: "#9ca3af", fontStyle: "italic", fontSize: 13 }}>Not provisioned yet</div>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 7. Hooks playground
+// ──────────────────────────────────────────────────────────────────────────────
 
 function HooksSection() {
   const { data, loading, error, refetch } = useUserWallet();
@@ -294,7 +540,7 @@ function HooksSection() {
   };
 
   return (
-    <Card title="5. Hooks — useUserWallet / useExportKey" subtitle="Programmatic access if you want to build your own UI on top of the SDK primitives.">
+    <Card title="7. Hooks — useUserWallet / useExportKey" subtitle="Programmatic access if you want to build your own UI on top of the SDK primitives.">
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         <button onClick={doRefetch} disabled={loading} style={secondaryBtn}>
           {loading ? "Refetching…" : "useUserWallet.refetch()"}
@@ -324,11 +570,9 @@ function HooksSection() {
 function InspectorPanel() {
   const { entries, clear } = useInspector();
   return (
-    <Card title="6. Inspector — live request log" subtitle="Most recent 25 API calls and their responses. Updates in real time as you interact with the SDK above.">
+    <Card title="8. Inspector — live request log" subtitle="Most recent 25 API calls and their responses.">
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-        <button onClick={clear} style={ghostBtn}>
-          Clear
-        </button>
+        <button onClick={clear} style={ghostBtn}>Clear</button>
       </div>
       {entries.length === 0 ? (
         <p style={{ color: "#6b7280", fontStyle: "italic" }}>Nothing logged yet.</p>
@@ -367,9 +611,8 @@ export default function WalletSdkDemo() {
       <header style={{ marginBottom: 24 }}>
         <h1 style={{ margin: 0, fontSize: 24 }}>@proofchain/wallet-sdk demo</h1>
         <p style={{ color: "#6b7280", marginTop: 6 }}>
-          Live exercise of every public component, hook, and API call exposed by the wallet
-          SDK. CDP authentication happens entirely in the browser — ProofChain never sees
-          your key material.
+          The JWT authorises ProofChain API calls. The end-user identity (Google / Apple / Email)
+          is chosen via CDP below. Key material never leaves the browser.
         </p>
       </header>
 
@@ -395,6 +638,8 @@ export default function WalletSdkDemo() {
             <div style={{ display: "grid", gap: 20 }}>
               <DiscoverySection apiBaseUrl={creds.apiBaseUrl} tenantSlug={creds.tenantSlug} />
               <ContextSection />
+              <AuthStateSection />
+              <CustomLoginSection />
               <ProvisionSection />
               <DisplaySection />
               <HooksSection />
@@ -408,7 +653,7 @@ export default function WalletSdkDemo() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Styles (inline so the page is self-contained, no extra Tailwind config)
+// Styles
 // ──────────────────────────────────────────────────────────────────────────────
 
 const inputStyle: React.CSSProperties = {
@@ -438,6 +683,17 @@ const secondaryBtn: React.CSSProperties = {
   borderRadius: 6,
   cursor: "pointer",
   fontSize: 13,
+};
+
+const oauthBtn: React.CSSProperties = {
+  background: "#fff",
+  color: "#111827",
+  border: "1px solid #d1d5db",
+  padding: "10px 18px",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: 14,
+  fontWeight: 500,
 };
 
 const dangerBtn: React.CSSProperties = {
@@ -480,6 +736,25 @@ const errorBlock: React.CSSProperties = {
   fontSize: 13,
   margin: "8px 0",
 };
+
+function Pill({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        background: ok ? "#d1fae5" : "#fee2e2",
+        color: ok ? "#065f46" : "#991b1b",
+        border: `1px solid ${ok ? "#a7f3d0" : "#fecaca"}`,
+        padding: "3px 8px",
+        borderRadius: 999,
+        fontSize: 12,
+        fontFamily: "ui-monospace, monospace",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
 
 function Card({
   title,
