@@ -1464,6 +1464,32 @@ export default function Home() {
     }
   };
 
+  const revokeConsentForUser = async () => {
+    if (!partnerSDK || !consentUserId) {
+      addLog('error', '❌ Partner SDK not initialized or no user ID');
+      return;
+    }
+
+    setConsentLoading(true);
+    addLog('request', `partnerSDK.revokeConsent('${consentUserId}')`);
+    try {
+      const result = await partnerSDK.revokeConsent(consentUserId);
+      addLog('success', `✅ Consent revoked for ${consentUserId}`, result);
+
+      // Update user's consent status
+      setGeneratedUsers(prev => prev.map(u =>
+        u.userId === consentUserId ? { ...u, hasConsent: false } : u
+      ));
+      setStats(prev => ({ ...prev, consents: Math.max(0, prev.consents - 1) }));
+      setResult(result);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      addLog('error', `❌ Failed to revoke consent: ${errMsg}`);
+    } finally {
+      setConsentLoading(false);
+    }
+  };
+
   // =========================================================================
   // Data View Functions
   // =========================================================================
@@ -2292,6 +2318,9 @@ export default function Home() {
                           <button onClick={openConsentWidget} disabled={!partnerSDK || !consentUserId} className="px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 disabled:opacity-50 font-medium text-sm">
                             Open Widget
                           </button>
+                          <button onClick={revokeConsentForUser} disabled={!partnerSDK || !consentUserId || consentLoading} className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50 font-medium text-sm">
+                            Revoke
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -2405,6 +2434,9 @@ export default function Home() {
                       </button>
                       <button onClick={openConsentWidget} disabled={!partnerSDK || !consentUserId} className="px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 disabled:opacity-50 text-sm font-medium">
                         Open Consent Widget
+                      </button>
+                      <button onClick={revokeConsentForUser} disabled={!partnerSDK || !consentUserId || consentLoading} className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50 text-sm font-medium">
+                        Revoke Consent
                       </button>
                       <button onClick={getCampaignConfig} disabled={!partnerSDK} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 text-sm font-medium">
                         Get Campaign Config
