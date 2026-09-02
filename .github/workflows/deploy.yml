@@ -86,7 +86,47 @@ jobs:
           fi
           chmod 600 ~/.kube/config
 
-      - name: Deploy to k3s
+      # ── PROD deploys via GitOps ───────────────────────────────────────
+      # Push the new image tag as a commit to proofchain-infra; ArgoCD's
+      # automated sync rolls it out.
+      - name: Deploy to prod (commit image pin to proofchain-infra)
+        if: github.ref_name != 'staging'
+        env:
+          INFRA_DEPLOY_KEY: ${{ secrets.INFRA_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh && { printenv INFRA_DEPLOY_KEY; echo; } > ~/.ssh/infra_key
+          chmod 600 ~/.ssh/infra_key
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/infra_key -o StrictHostKeyChecking=accept-new"
+          git clone -q --depth 10 git@github.com:ProofChainZA/proofchain-infra.git /tmp/infra
+          cd /tmp/infra/kubernetes/production/overlays/k3s-ha
+          git config user.name "demo-ci"
+          git config user.email "ci@proofchain.co.za"
+          for i in 1 2 3; do
+            kustomize edit set image $ECR_REGISTRY/$IMAGE_NAME=$ECR_REGISTRY/$IMAGE_NAME:${{ github.sha }}
+            if git diff --quiet; then echo "pin already current"; break; fi
+            git commit -aqm "deploy: proofchain-demo ${{ github.sha }} (CI run ${{ github.run_id }})"
+            git push -q origin main && break
+            echo "push rejected (concurrent pin bump) — rebasing, attempt $i"
+            git fetch -q origin main && git reset -q --hard origin/main
+          done
+
+      - name: Wait for ArgoCD rollout (prod)
+        if: github.ref_name != 'staging'
+        run: |
+          IMAGE=$ECR_REGISTRY/$IMAGE_NAME:${{ github.sha }}
+          CURRENT=""
+          for i in $(seq 1 60); do
+            CURRENT=$(kubectl -n proofchain get deploy demo-app \
+              -o jsonpath='{.spec.template.spec.containers[0].image}')
+            [ "$CURRENT" = "$IMAGE" ] && break
+            sleep 10
+          done
+          [ "$CURRENT" = "$IMAGE" ] || { echo "::error::ArgoCD did not sync the new image within 10 min"; exit 1; }
+          kubectl rollout status deployment/demo-app -n proofchain --timeout=300s
+
+      # ── STAGING keeps direct kubectl (no ArgoCD on the staging cluster) ──
+      - name: Deploy to k3s (staging)
+        if: github.ref_name == 'staging'
         run: |
           kubectl set image deployment/demo-app demo-app=$ECR_REGISTRY/$IMAGE_NAME:${{ github.sha }} -n proofchain
           kubectl rollout status deployment/demo-app -n proofchain --timeout=300s
