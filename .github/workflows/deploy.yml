@@ -112,13 +112,30 @@ jobs:
 
       - name: Wait for ArgoCD rollout (prod)
         if: github.ref_name != 'staging'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
         run: |
-          IMAGE=$ECR_REGISTRY/$IMAGE_NAME:${{ github.sha }}
+          IMAGE=$ECR_REGISTRY/$IMAGE_NAME:$HEAD_SHA
+          # Superseded-by-a-newer-pin = success: rapid sequential merges
+          # make ArgoCD converge on the NEWEST pin, so this run's exact
+          # image may never go live even though its code is deployed
+          # inside the newer image (proofchain-api#97 pattern, 2026-09-03).
           CURRENT=""
           for i in $(seq 1 60); do
             CURRENT=$(kubectl -n proofchain get deploy demo-app \
               -o jsonpath='{.spec.template.spec.containers[0].image}')
             [ "$CURRENT" = "$IMAGE" ] && break
+            CURRENT_SHA=${CURRENT##*:}
+            if [ -n "$CURRENT_SHA" ] && [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
+              REL=$(gh api "repos/$REPO/compare/$HEAD_SHA...$CURRENT_SHA" \
+                --jq .status 2>/dev/null || echo unknown)
+              if [ "$REL" = "ahead" ]; then
+                echo "superseded: live image $CURRENT_SHA already contains $HEAD_SHA — deploy satisfied by a newer pin"
+                exit 0
+              fi
+            fi
             sleep 10
           done
           [ "$CURRENT" = "$IMAGE" ] || { echo "::error::ArgoCD did not sync the new image within 10 min"; exit 1; }
