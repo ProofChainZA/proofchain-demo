@@ -21,7 +21,9 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Self-hosted ARC runner (ephemeral pod, staging k3s) — proofchain-meta
+    # scripts/ci-runners/. Rollback: ubuntu-latest.
+    runs-on: box-demo
     steps:
       - uses: actions/checkout@v5
       
@@ -29,7 +31,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '20'
-          cache: 'npm'
+          # no cache: param — persistent ~/.npm volume on the runner
       
       - name: Install dependencies
         run: npm ci
